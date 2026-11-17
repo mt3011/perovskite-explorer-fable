@@ -44,39 +44,77 @@ def _nonneg(d: dict) -> bool:
     return all(v >= -_TOL for v in d.values())
 
 
-def _explain_rest(rest: dict):
-    """Tenta escrever `rest` (átomos pesados não-metal/não-haleto) como combinação de EXTRAS.
+def _explain_rest(rest: dict) -> list:
+    """Todas as formas de escrever `rest` (átomos pesados não-metal/não-haleto) com os EXTRAS.
 
-    Retorna lista [(rótulo, n, nH)] ou None. Busca limitada: água + até 2 outras espécies.
+    Cada solução é uma lista [(rótulo, n, nH)]; [] significa "nada sobra". Busca limitada a
+    água + até 2 outras espécies, ordenada da solução mais simples para a mais complexa.
     """
     rest = {e: v for e, v in rest.items() if abs(v) > _TOL}
     if not rest:
-        return []
+        return [[]]
     if set(rest) == {"O"}:
         w = round(rest["O"])
-        return [("H2O", w, 2)] if 1 <= w <= 12 else None
+        return [[("H2O", w, 2)]] if 1 <= w <= 12 else []
+
+    def close(r, used):
+        rc = {e: v for e, v in r.items() if abs(v) > _TOL}
+        if not rc:
+            return used
+        if set(rc) == {"O"} and 1 <= round(rc["O"]) <= 8:
+            return used + [("H2O", round(rc["O"]), 2)]
+        return None
+
+    solutions = []
     others = EXTRAS[1:]
     for i, (lab1, h1, nh1) in enumerate(others):
         for n1 in range(1, 5):
             r1 = _sub(rest, h1, n1)
             if not _nonneg(r1):
                 break
-            r1c = {e: v for e, v in r1.items() if abs(v) > _TOL}
-            if not r1c:
-                return [(lab1, n1, nh1)]
-            if set(r1c) == {"O"} and 1 <= round(r1c["O"]) <= 8:
-                return [(lab1, n1, nh1), ("H2O", round(r1c["O"]), 2)]
+            done = close(r1, [(lab1, n1, nh1)])
+            if done is not None:
+                solutions.append(done)
+                continue
             for lab2, h2, nh2 in others[i + 1:]:
                 for n2 in range(1, 4):
                     r2 = _sub(r1, h2, n2)
                     if not _nonneg(r2):
                         break
-                    r2c = {e: v for e, v in r2.items() if abs(v) > _TOL}
-                    if not r2c:
-                        return [(lab1, n1, nh1), (lab2, n2, nh2)]
-                    if set(r2c) == {"O"} and 1 <= round(r2c["O"]) <= 8:
-                        return [(lab1, n1, nh1), (lab2, n2, nh2), ("H2O", round(r2c["O"]), 2)]
-    return None
+                    done = close(r2, [(lab1, n1, nh1), (lab2, n2, nh2)])
+                    if done is not None:
+                        solutions.append(done)
+    solutions.sort(key=lambda sol: (len(sol), sum(n for _, n, _ in sol)))
+    return solutions
+
+
+def _candidate(k: int, extras: list, h_ent: float, h_org: float, organic: dict) -> dict:
+    cand = {"k": k, "extras": [{"especie": lab, "n": n} for lab, n, _ in extras]}
+    n_water = sum(n for lab, n, _ in extras if lab == "H2O")
+    h_extras = sum(n * nh for _, n, nh in extras)
+    if h_ent > 0:
+        p = (h_ent - h_extras - k * h_org) / k
+        # o H da água muitas vezes não entra na fórmula declarada -> folga de 2 H por água
+        lower = -organic.get("h_em_heteroatomos", 0) - 2 * n_water / k - 0.01 \
+            - organic.get("n_cationicos_permanentes", 0)
+        n_sites = organic.get("n_sitios_protonaveis", 0)
+        # no máximo um próton por sítio básico (se nenhum sítio foi identificado, tolera 1)
+        upper = (n_sites if n_sites else 1) + n_water / k + 0.01
+        cand["h_informado"] = True
+        cand["protons_por_organico"] = round(p, 2)
+        cand["h_coerente"] = lower <= p <= upper
+        cand["cationico"] = p > 0.25
+        if p > 0.25:
+            cand["papel"] = f"cátion protonado (+{p:g} H por molécula)"
+        elif p < -0.25:
+            cand["papel"] = f"desprotonado/ânion ({p:g} H por molécula)"
+        else:
+            cand["papel"] = "neutro ou cátion permanente (sem H extra)"
+    else:
+        cand.update({"h_informado": False, "protons_por_organico": None, "h_coerente": None,
+                     "cationico": None, "papel": "H não informado na fórmula"})
+    cand["nivel"] = "exata" if all(lab == "H2O" for lab, _, _ in extras) else "com_extras"
+    return cand
 
 
 def match_formula(entry_formula: dict, organic: dict):
@@ -103,42 +141,15 @@ def match_formula(entry_formula: dict, organic: dict):
         if not _nonneg(res):
             continue
         rest = {e: v for e, v in res.items() if e not in METALS and e not in HALOGENS}
-        extras = _explain_rest(rest)
-        if extras is None:
-            continue
-        cand = {"k": k, "extras": [{"especie": lab, "n": n} for lab, n, _ in extras]}
-        n_water = sum(n for lab, n, _ in extras if lab == "H2O")
-        h_extras = sum(n * nh for _, n, nh in extras)
-        if h_ent > 0:
-            p_total = h_ent - h_extras - k * h_org
-            p = p_total / k
-            lower = -organic.get("h_em_heteroatomos", 0) - 2 * n_water / k - 0.01 \
-                - organic.get("n_cationicos_permanentes", 0)
-            # o H da água muitas vezes não entra na fórmula declarada -> folga de 2 H por água
-            n_sites = organic.get("n_sitios_protonaveis", 0)
-            # no máximo um próton por sítio básico (se nenhum sítio foi identificado, tolera 1)
-            upper = (n_sites if n_sites else 1) + n_water / k + 0.01
-            cand["h_informado"] = True
-            cand["protons_por_organico"] = round(p, 2)
-            cand["h_coerente"] = lower <= p <= upper
-            cand["cationico"] = p > 0.25
-            if p > 0.25:
-                cand["papel"] = f"cátion protonado (+{p:g} H por molécula)"
-            elif p < -0.25:
-                cand["papel"] = f"desprotonado/ânion ({p:g} H por molécula)"
-            else:
-                cand["papel"] = "neutro ou cátion permanente (sem H extra)"
-        else:
-            cand.update({"h_informado": False, "protons_por_organico": None, "h_coerente": None, "cationico": None,
-                         "papel": "H não informado na fórmula"})
-        only_water = all(lab == "H2O" for lab, _, _ in extras)
-        cand["nivel"] = "exata" if only_water else "com_extras"
-        if cand["h_coerente"] is False:
-            continue
-        # preferimos: sem extras > só água > outros; e, em empate, o maior k
-        rank = (0 if not extras else 1 if only_water else 2, -k)
-        if best is None or rank < best[0]:
-            best = (rank, cand)
+        for extras in _explain_rest(rest):
+            cand = _candidate(k, extras, h_ent, h_org, organic)
+            if cand["h_coerente"] is False:
+                continue
+            # preferimos: sem extras > só água > outros; e, em empate, o maior k
+            rank = (0 if not extras else 1 if cand["nivel"] == "exata" else 2, len(extras), -k)
+            if best is None or rank < best[0]:
+                best = (rank, cand)
+            break  # as soluções vêm ordenadas: a primeira coerente é a mais simples para este k
     return best[1] if best else None
 
 
