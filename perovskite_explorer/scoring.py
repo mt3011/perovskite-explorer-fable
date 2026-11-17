@@ -13,8 +13,8 @@ POUCO = "POUCO EXPLORADO"
 MODERADO = "MODERADAMENTE EXPLORADO"
 ESTABELECIDO = "BEM ESTABELECIDO"
 NOVELTY = {INEXPLORADO: 100, SEM_USO: 90, INDICIOS: 75, POUCO: 65, MODERADO: 35, ESTABELECIDO: 10}
-HYBRID = "haleto metálico híbrido"
-SALT = "sal de haleto sem metal"
+HYBRID = st.HYBRID
+SALT = st.SALT
 CORE_METALS = ["Pb", "Sn", "Bi", "Sb", "Cu", "Ag"]
 
 
@@ -36,8 +36,12 @@ def summarize(res: dict) -> dict:
     structs = [s for s in res.get("estruturas", []) if s["confianca"] != st.DESCARTADA]
     hybrid = [s for s in structs if s["categoria"] == HYBRID]
     salts = [s for s in structs if s["categoria"] == SALT]
-    strong = [s for s in hybrid if s["confianca"] in (st.CONFIRMADA, st.PROVAVEL)]
-    weak = [s for s in hybrid if s["confianca"] not in (st.CONFIRMADA, st.PROVAVEL)]
+    strong = [s for s in hybrid if s["confianca"] in st.FORTES]
+    # "fracas": verificação tentada e inconclusiva, ou só nome. Candidatas ainda não verificadas
+    # (limite de CIFs) são contadas à parte e não entram em nenhuma conclusão.
+    weak = [s for s in hybrid if s["confianca"] not in st.FORTES and s.get("verificada", True)]
+    pending = [s for s in hybrid if s["confianca"] not in st.FORTES and not s.get("verificada", True)]
+    roles = Counter(s.get("papel_do_organico") or st.UNKNOWN for s in strong)
 
     papers = res.get("literatura", [])
     rel = [p for p in papers if p.get("relevante")]
@@ -74,10 +78,14 @@ def summarize(res: dict) -> dict:
 
     combos = Counter()
     dims = Counter()
+    seen_pairs = set()
     for s in strong:
         for m in s["metais"]:
             for x in s["haletos"]:
-                combos[f"{m}–{x}"] += 1
+                key = (s.get("doi") or s["id"], m, x)
+                if key not in seen_pairs:   # um artigo conta uma vez por par M–X
+                    seen_pairs.add(key)
+                    combos[f"{m}–{x}"] += 1
         a = s.get("analise") or {}
         if a.get("ok") and a.get("dimensionalidade") is not None:
             dims[f"{a['dimensionalidade']}D"] += 1
@@ -87,6 +95,8 @@ def summarize(res: dict) -> dict:
     factor, why = viability(org)
     index = round(NOVELTY[level] * factor)
     failed = [k for k, v in (res.get("fontes") or {}).items() if not v.get("ok")]
+    if pending:
+        failed = failed + [f"verificação por CIF pendente em {len(pending)} candidatas (aumente --max-cifs)"]
     partial = [k for k, v in (res.get("fontes") or {}).items() if v.get("ok") and v.get("falhas_parciais")]
 
     summary = {
@@ -96,11 +106,17 @@ def summarize(res: dict) -> dict:
         "viabilidade": why,
         "busca_completa": not failed and not partial,
         "fontes_com_falha": failed + [f"{p} (parcial)" for p in partial],
-        "n_estruturas_hibridas_fortes": len(strong),
+        "n_estruturas_hibridas_fortes": st.unique_samples(strong),
         "n_estruturas_hibridas_confirmadas": sum(1 for s in strong if s["confianca"] == st.CONFIRMADA),
+        "n_estruturas_cod": sum(1 for s in strong if s["fonte"] == "COD"),
+        "n_estruturas_csd": sum(1 for s in strong if s["fonte"] == "CSD"),
+        "papeis_do_organico": dict(roles.most_common()),
+        "n_como_cation": sum(v for k, v in roles.items() if k.startswith("cátion")),
         "n_estruturas_hibridas_possiveis": len(weak),
-        "n_compostos_hibridos": len({s["composto"] for s in strong}),
-        "n_sais_haleto_sem_metal": len(salts),
+        "n_candidatas_nao_verificadas": len(pending),
+        "n_compostos_hibridos": len({(s["fonte"], s["composto"]) for s in strong}),
+        "n_sais_haleto_sem_metal": st.unique_samples([s for s in salts if s["confianca"] in st.FORTES]),
+        "n_csd_qualquer_composto": res.get("csd_total_qualquer_composto"),
         "n_descartadas": len(res.get("descartadas", [])),
         "combinacoes_MX": dict(combos.most_common()),
         "dimensionalidades": dict(dims),
@@ -114,7 +130,7 @@ def summarize(res: dict) -> dict:
         "n_artigos_ambiguos": len(ambiguous),
         "n_mencoes": len(mentions),
         "n_nao_verificaveis": len(unverifiable),
-        "n_depositos_csd_ligados": len(res.get("depositos_csd", [])),
+        "n_depositos_csd_ligados": len({d.get("ccdc") or d.get("doi_deposito") for d in res.get("depositos_csd", [])}),
     }
     summary["parecer"] = _verdict(summary, org)
     return summary
@@ -137,10 +153,12 @@ def _verdict(s: dict, org: dict) -> str:
     else:
         parts.append(f"Já usado estruturalmente: {s['n_publicacoes_estruturais']} publicação(ões) de "
                      f"~{s['n_grupos_independentes']} grupo(s) independente(s), "
-                     f"{s['n_estruturas_hibridas_fortes']} estrutura(s) em {s['n_compostos_hibridos']} composto(s)"
+                     f"{s['n_estruturas_hibridas_fortes']} estrutura(s) de haleto metálico"
                      + (f", {s['primeiro_ano']}–{s['ultimo_ano']}" if s["primeiro_ano"] else "") + ".")
+        if s["papeis_do_organico"]:
+            parts.append("Papel do orgânico nas entradas: " + ", ".join(f"{k} ({v})" for k, v in s["papeis_do_organico"].items()) + ".")
         if s["combinacoes_MX"]:
-            parts.append("Combinações reportadas: " + ", ".join(f"{k} ({v})" for k, v in s["combinacoes_MX"].items()) + ".")
+            parts.append("Combinações M–X (nº de artigos): " + ", ".join(f"{k} ({v})" for k, v in s["combinacoes_MX"].items()) + ".")
         if s["dimensionalidades"]:
             parts.append("Dimensionalidades: " + ", ".join(f"{k} ({v})" for k, v in sorted(s["dimensionalidades"].items())) + ".")
         if lv == POUCO:

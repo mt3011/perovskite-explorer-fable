@@ -115,10 +115,13 @@ def match_formula(entry_formula: dict, organic: dict):
             lower = -organic.get("h_em_heteroatomos", 0) - 2 * n_water / k - 0.01 \
                 - organic.get("n_cationicos_permanentes", 0)
             # o H da água muitas vezes não entra na fórmula declarada -> folga de 2 H por água
-            upper = organic.get("n_sitios_protonaveis", 0) + 1 + n_water / k + 0.01
+            n_sites = organic.get("n_sitios_protonaveis", 0)
+            # no máximo um próton por sítio básico (se nenhum sítio foi identificado, tolera 1)
+            upper = (n_sites if n_sites else 1) + n_water / k + 0.01
             cand["h_informado"] = True
             cand["protons_por_organico"] = round(p, 2)
             cand["h_coerente"] = lower <= p <= upper
+            cand["cationico"] = p > 0.25
             if p > 0.25:
                 cand["papel"] = f"cátion protonado (+{p:g} H por molécula)"
             elif p < -0.25:
@@ -126,7 +129,7 @@ def match_formula(entry_formula: dict, organic: dict):
             else:
                 cand["papel"] = "neutro ou cátion permanente (sem H extra)"
         else:
-            cand.update({"h_informado": False, "protons_por_organico": None, "h_coerente": None,
+            cand.update({"h_informado": False, "protons_por_organico": None, "h_coerente": None, "cationico": None,
                          "papel": "H não informado na fórmula"})
         only_water = all(lab == "H2O" for lab, _, _ in extras)
         cand["nivel"] = "exata" if only_water else "com_extras"

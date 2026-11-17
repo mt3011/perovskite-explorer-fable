@@ -217,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--fontes", help="fontes de literatura: openalex,europepmc,crossref,semanticscholar")
     b.add_argument("--sem-cod", action="store_true", help="não consulta o COD")
     b.add_argument("--sem-datacite", action="store_true", help="não busca depósitos CCDC via DataCite")
-    b.add_argument("--max-cifs", type=int, help="máximo de CIFs verificados por orgânico (padrão: 60)")
+    b.add_argument("--max-cifs", type=int, help="limite de CIFs para candidatas só por fórmula com orgânico neutro (padrão: 300)")
     b.add_argument("--refazer", action="store_true", help="ignora checkpoints e reprocessa todos os orgânicos")
     b.add_argument("--atualizar", action="store_true", help="ignora o cache HTTP e consulta tudo de novo")
     b.add_argument("--offline", action="store_true", help="usa somente o cache (não acessa a rede)")

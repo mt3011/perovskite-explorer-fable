@@ -21,7 +21,7 @@ log = logging.getLogger("perovskite_explorer")
 # intervalo mínimo (s) entre requisições a cada servidor
 HOST_INTERVAL = {
     "pubchem.ncbi.nlm.nih.gov": 0.25,
-    "www.crystallography.net": 1.0,
+    "www.crystallography.net": 0.5,
     "api.crossref.org": 0.25,
     "api.openalex.org": 0.2,
     "www.ebi.ac.uk": 0.25,
@@ -138,6 +138,11 @@ class HttpClient:
                     raise SourceError(f"{host}: {last_err} — {resp.text[:300]!r}")
                 ra = resp.headers.get("Retry-After", "")
                 retry_after = float(ra) if ra.replace(".", "", 1).isdigit() else None
+                if status == 429 and retry_after and retry_after > 300:
+                    # cota (diária) esgotada: esperar não adianta nesta execução
+                    self._down[host] = "cota de uso esgotada (HTTP 429)"
+                    raise SourceError(f"{host}: cota de uso esgotada (HTTP 429; libera em "
+                                      f"{retry_after / 3600:.1f} h) — {resp.text[:200]!r}")
             except SourceError:
                 self.stats["falhas"] += 1
                 raise

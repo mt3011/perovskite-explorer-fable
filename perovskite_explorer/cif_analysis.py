@@ -88,8 +88,9 @@ def _load_atoms(cif_text: str):
         if el not in COVALENT_RADII:
             continue
         occ = s.occ if s.occ > 0 else 1.0
+        grp = int(getattr(s, "disorder_group", 0) or 0)
         raw.append({"el": el, "f": np.array([s.fract.x, s.fract.y, s.fract.z]), "occ": occ,
-                    "grp": int(getattr(s, "disorder_group", 0) or 0)})
+                    "grp": grp, "dis": grp != 0 or occ < 0.99})
     if not raw:
         raise CifError("nenhum átomo reconhecido")
 
@@ -109,7 +110,7 @@ def _load_atoms(cif_text: str):
 
     # ordena por ocupação: em sobreposições fica o átomo mais ocupado
     raw.sort(key=lambda a: -a["occ"])
-    els, fracs = [], []
+    els, fracs, dis = [], [], []
     acc = np.zeros((0, 3))
     for a in raw:
         for R, t in zip(rots, trans):
@@ -123,6 +124,7 @@ def _load_atoms(cif_text: str):
             acc = np.vstack([acc, f])
             els.append(a["el"])
             fracs.append(f)
+            dis.append(a["dis"])
             if len(els) > MAX_ATOMS:
                 raise CifError(f"estrutura grande demais (> {MAX_ATOMS} átomos na cela)")
 
@@ -143,7 +145,7 @@ def _load_atoms(cif_text: str):
         "cela": [round(x, 4) for x in (cell.a, cell.b, cell.c, cell.alpha, cell.beta, cell.gamma)],
         "volume": round(cell.volume, 2),
     }
-    return els, np.array(fracs), M, disorder, meta
+    return els, np.array(fracs), M, disorder, dis, meta
 
 
 def _bond_tables(els):
@@ -260,7 +262,7 @@ def analyze_cif(cif_text: str, query: dict | None = None) -> dict:
 def _analyze(cif_text, query):
     import networkx as nx
 
-    els, fracs, M, disorder, meta = _load_atoms(cif_text)
+    els, fracs, M, disorder, dis, meta = _load_atoms(cif_text)
     n = len(els)
     bonds = _find_bonds(els, fracs, M)
     nbrs: dict = {i: [] for i in range(n)}
@@ -323,15 +325,16 @@ def _analyze(cif_text, query):
                        "h_por_molecula_no_cif": sorted(set(h_found))}
         elif not organic_graphs:
             organic = {"status": "inconclusivo", "motivo": "CIF sem átomos de carbono localizados"}
-        elif disorder:
-            organic = {"status": "inconclusivo",
-                       "motivo": "estrutura com desordem; o grafo do orgânico não pôde ser reconstruído"}
         elif same_formula:
             organic = {"status": "isomero",
                        "motivo": "há molécula com a mesma fórmula, mas conectividade diferente (isômero)"}
+        elif any(dis[i] for _, _, _, members in organic_graphs for i in members if els[i] != "H"):
+            # só a desordem na PARTE ORGÂNICA impede a conclusão (desordem em ânions/água não)
+            organic = {"status": "inconclusivo",
+                       "motivo": "parte orgânica desordenada; o grafo não pôde ser reconstruído"}
         else:
             organic = {"status": "ausente",
-                       "motivo": "estrutura ordenada sem nenhuma molécula com a composição do orgânico"}
+                       "motivo": "parte orgânica ordenada sem nenhuma molécula com a composição do orgânico"}
 
     # ---------- parte inorgânica ----------
     metal_idx = [i for i in range(n) if framework_metal[i]]
@@ -372,6 +375,8 @@ def _analyze(cif_text, query):
         sharing["vértices" if cnt == 1 else "arestas" if cnt == 2 else "faces"] += 1
 
     cn_values = sorted({coord_x[m] for m in metal_idx if coord_x[m] > 0})
+    spheres = sorted({(f"MX{coord_x[m]}" if coord_x[m] else "M") + (f"L{coord_l[m]}" if coord_l[m] else "")
+                      for m in metal_idx if coord_x[m] or coord_l[m]})
     metals_present = sorted({els[i] for i in metal_idx})
     a_site = sorted({e for e in els if e in A_SITE_METALS})
     halides = sorted({els[i] for i in range(n) if inorganic_x[i]})
@@ -388,6 +393,7 @@ def _analyze(cif_text, query):
         "dimensionalidade": dim_max,
         "compartilhamento": dict(sharing),
         "numeros_de_coordenacao_MX": cn_values,
+        "esferas_de_coordenacao": spheres,
         "distancia_MX_media": round(float(np.mean(bond_lengths)), 3) if bond_lengths else None,
         "organico_coordenado_ao_metal": organic_bound,
         "organico_alvo_coordenado_ao_metal": target_bound,
@@ -399,35 +405,40 @@ def _analyze(cif_text, query):
 
 
 def classify(r: dict) -> str:
-    """Rótulo legível da arquitetura estrutural."""
+    """Rótulo legível da arquitetura estrutural.
+
+    Notação da esfera de coordenação: MX6 = metal ligado a 6 haletos; MX4L2 = 4 haletos e
+    2 átomos N/O/S/P (L). "Tipo perovskita" só é atribuído a octaedros MX6 puros que
+    compartilham apenas vértices.
+    """
     if not r.get("metais"):
         if r.get("haletos"):
             return "Sal orgânico de haleto, sem metal (precursor ou composto livre de metal)"
         return "Estrutura sem metal e sem haleto iônico"
-    if r.get("dimensionalidade") is None:
-        if r.get("organico_coordenado_ao_metal"):
-            return "Complexo de coordenação (orgânico ligado ao metal; haleto fora da esfera do metal)"
-        return "Metal sem ligação M–X identificada"
-    dim = r["dimensionalidade"]
-    cn = r.get("numeros_de_coordenacao_MX") or []
+    spheres = r.get("esferas_de_coordenacao") or []
+    mx = f"M = {', '.join(r['metais'])}; X = {', '.join(r.get('haletos') or []) or '—'}"
+    pure = bool(spheres) and all("L" not in sp for sp in spheres)
+    units = "/".join("octaedros MX6" if sp == "MX6" else f"unidades {sp}" for sp in spheres) or "unidades M–X"
+    dim = r.get("dimensionalidade")
     sh = r.get("compartilhamento") or {}
-    poly = {6: "octaedros", 4: "tetraedros", 5: "poliedros CN5", 3: "unidades CN3", 2: "unidades lineares"}
-    poly_txt = "/".join(poly.get(c, f"poliedros CN{c}") for c in cn) or "poliedros"
-    mx = f"M = {', '.join(r['metais'])}; X = {', '.join(r.get('haletos') or [])}"
-    if dim == 0:
-        if sh:
-            base = f"0D — clusters isolados de {poly_txt} (compart. por {_join(sh)})"
-        else:
-            base = f"0D — {poly_txt} isolados"
+    if dim is None:
+        base = "Sem ligação M–X: haleto fora da esfera do metal (contra-íon)"
+        if spheres:
+            base += f"; esfera {'/'.join(spheres)}"
+    elif dim == 0:
+        base = (f"0D — clusters isolados de {units} (compartilhando {_join(sh)})" if sh
+                else f"0D — {units} isolados(as)")
     else:
         name = {1: "1D — cadeias", 2: "2D — camadas", 3: "3D — rede tridimensional"}[dim]
-        base = f"{name} de {poly_txt} compartilhando {_join(sh) or '?'}"
-        if cn == [6] and set(sh) == {"vértices"}:
-            base += " (tipo perovskita)"
-        elif cn == [6]:
-            base += " (perovskitoide)"
-    if r.get("organico_coordenado_ao_metal"):
-        base += "; ATENÇÃO: orgânico coordenado diretamente ao metal (híbrido de coordenação)"
+        base = f"{name} de {units} compartilhando {_join(sh) or '?'}"
+        if pure and spheres == ["MX6"]:
+            base += " (tipo perovskita)" if set(sh) == {"vértices"} else " (perovskitoide)"
+    if r.get("organico_alvo_coordenado_ao_metal"):
+        base += "; o orgânico procurado está COORDENADO ao metal (composto de coordenação)"
+    elif r.get("organico_coordenado_ao_metal"):
+        base += "; outro orgânico coordenado ao metal"
+    elif not pure and spheres:
+        base += "; metal também ligado a O/N de água/solvente/oxo"
     return f"{base} [{mx}]"
 
 

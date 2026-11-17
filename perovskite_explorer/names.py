@@ -128,9 +128,46 @@ def term_regex(term: str) -> re.Pattern:
 
 
 def find_terms(text: str, terms) -> list:
-    """Lista os termos presentes em `text` (ambos são normalizados)."""
+    """Lista os termos presentes em `text` como nome próprio do composto.
+
+    Rejeita ocorrências coladas a outro fragmento de nome ('dibenzo[a,c]phenazine',
+    'pyrido-phenazine', "2,2'-...phenazinium"), que indicam um derivado e não o orgânico.
+    """
     norm = normalize_text(text)
-    return [t for t in terms if t and term_regex(t).search(norm)]
+    found = []
+    for t in terms:
+        if not t:
+            continue
+        for m in term_regex(t).finditer(norm):
+            before = norm[max(0, m.start() - 1):m.start()]
+            after = norm[m.end():m.end() + 2]
+            if before in ("]", ")", "-", "'", ",") or re.match(r"-\d", after):
+                continue
+            found.append(t)
+            break
+    return found
+
+
+_OK_PREFIX = re.compile(r"(^|[\s\(\[;:/]|(?:^|[\s\(\[\-])(?:mu|kappa|eta)\d*-)$")
+_BAD_SUFFIX = re.compile(r"^(?:[a-z]|-(?!(?:n|o|s|k)\b)[a-z0-9])")
+
+
+def find_terms_in_chemname(name: str, terms) -> list:
+    """Versão estrita para nomes químicos sistemáticos (bancos cristalográficos).
+
+    'phenazinium' casa em 'bis(phenazinium) tetrabromo-cadmium', mas não em derivados como
+    '5-methyl-phenazinium', 'dibenzo[a,c]phenazine' ou 'pyridinium-3-carboxylate'.
+    """
+    norm = normalize_text(name).replace("μ", "mu")
+    found = []
+    for t in terms:
+        if not t:
+            continue
+        for m in term_regex(t).finditer(norm):
+            if _OK_PREFIX.search(norm[:m.start()]) and not _BAD_SUFFIX.match(norm[m.end():]):
+                found.append(t)
+                break
+    return found
 
 
 def split_sentences(text: str) -> list:

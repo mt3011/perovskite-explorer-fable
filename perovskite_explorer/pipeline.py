@@ -19,7 +19,7 @@ from pathlib import Path
 from . import __version__, cod, csd, datacite, literature, pubchem, scoring, structures
 from .chem import DEFAULT_HALOGENS, DEFAULT_METALS
 from .http import SourceError
-from .names import build_terms, slugify
+from .names import build_terms, find_terms_in_chemname, slugify
 
 log = logging.getLogger("perovskite_explorer")
 
@@ -29,8 +29,8 @@ DEFAULT_CONFIG = {
     "fontes_literatura": ["openalex", "europepmc", "crossref"],
     "usar_cod": True,
     "usar_csd": True,          # só tem efeito se a CSD Python API estiver instalada
-    "usar_datacite": True,
-    "max_cifs": 60,            # CIFs verificados por orgânico e por banco
+    "usar_datacite": True,     # CSD por nome e por artigo, via metadados públicos do DataCite
+    "max_cifs": 300,           # limite de CIFs para candidatas só por fórmula com orgânico neutro (B2)
     "max_paginas": 2,          # páginas de 100 resultados por fonte de literatura
     "max_doi_datacite": 25,
     "email": None,
@@ -68,9 +68,15 @@ def _default(o):
     return str(o)
 
 
+def config_signature(cfg: dict) -> dict:
+    """Parâmetros que mudam o resultado: se diferirem do checkpoint, o orgânico é refeito."""
+    keys = ("metais", "halogenios", "fontes_literatura", "usar_cod", "usar_csd", "usar_datacite", "max_cifs")
+    return {k: cfg.get(k) for k in keys}
+
+
 def process_organic(http, name: str, cfg: dict) -> dict:
     res = {"entrada": name, "versao": __version__, "inicio": dt.datetime.now().isoformat(timespec="seconds"),
-           "fontes": {}, "estruturas": [], "descartadas": [], "compostos": [], "literatura": [],
+           "config": config_signature(cfg), "fontes": {}, "estruturas": [], "descartadas": [], "compostos": [], "literatura": [],
            "depositos_csd": []}
 
     # 1) identidade química -------------------------------------------------
@@ -88,14 +94,22 @@ def process_organic(http, name: str, cfg: dict) -> dict:
 
     # 2) bancos cristalográficos -------------------------------------------
     all_structs = []
+    res["verificacao"] = {"cifs_analisados": 0, "hibridos_nao_verificados": 0, "sais_omitidos": 0}
+
+    def add_stats(stats):
+        for k, v in stats.items():
+            res["verificacao"][k] += v
+
     if cfg["usar_cod"]:
         try:
             entries, rep = cod.search(http, org, terms, cfg["metais"], cfg["halogenios"])
             cands = structures.prefilter(entries, org, terms)
-            structures.verify(cands, org, lambda i: cod.fetch_cif(http, i), cfg["max_cifs"])
+            cands, stats = structures.verify(cands, org, lambda i: cod.fetch_cif(http, i), cfg["max_cifs"])
+            add_stats(stats)
             all_structs += cands
             res["fontes"]["COD"] = {"ok": True, "consultas": rep["consultas"],
                                     "entradas_examinadas": len(entries), "candidatas": len(cands),
+                                    "cifs_analisados": stats["cifs_analisados"],
                                     "falhas_parciais": rep["falhas"][:5]}
         except SourceError as exc:
             res["fontes"]["COD"] = {"ok": False, "erro": str(exc)}
@@ -104,14 +118,31 @@ def process_organic(http, name: str, cfg: dict) -> dict:
             try:
                 entries, cifs = csd.search(org)
                 cands = structures.prefilter(entries, org, terms)
-                structures.verify(cands, org, cifs.get, max_cifs=10 ** 6)
+                cands, stats = structures.verify(cands, org, cifs.get, max_cifs=10 ** 6, max_salts=10 ** 6)
+                add_stats(stats)
                 all_structs += cands
-                res["fontes"]["CSD"] = {"ok": True, "entradas_examinadas": len(entries), "candidatas": len(cands)}
+                res["fontes"]["CSD (API)"] = {"ok": True, "entradas_examinadas": len(entries), "candidatas": len(cands)}
             except Exception as exc:  # noqa: BLE001 - conector ainda não validado com licença real
-                res["fontes"]["CSD"] = {"ok": False, "erro": f"{type(exc).__name__}: {exc}"}
+                res["fontes"]["CSD (API)"] = {"ok": False, "erro": f"{type(exc).__name__}: {exc}"}
+    if cfg["usar_datacite"]:
+        try:
+            found = datacite.search_names(http, terms, cfg["halogenios"])
+            have = {s.get("ccdc") for s in all_structs if s.get("ccdc")}
+            csd_structs = [x for x in (datacite.to_structure(r, terms, cfg["halogenios"], cfg["metais"])
+                                       for r in found["registros"]) if x and x["ccdc"] not in have]
+            all_structs += csd_structs
+            res["csd_total_qualquer_composto"] = found["total_qualquer"]
+            res["fontes"]["CSD (nomes via DataCite)"] = {
+                "ok": True, "depositos_com_haleto_examinados": len(found["registros"]),
+                "aceitos_pelo_nome": len(csd_structs), "depositos_citando_o_organico": found["total_qualquer"]}
+            if found["truncado"]:
+                res["fontes"]["CSD (nomes via DataCite)"]["falhas_parciais"] = [
+                    f"lista truncada: {found['total_com_haleto']} depósitos, lidos {len(found['registros'])}"]
+        except SourceError as exc:
+            res["fontes"]["CSD (nomes via DataCite)"] = {"ok": False, "erro": str(exc)}
     for s in all_structs:
         (res["descartadas"] if s["confianca"] == structures.DESCARTADA else res["estruturas"]).append(s)
-    res["estruturas"].sort(key=lambda s: (s["categoria"] != scoring.HYBRID, structures.ORDER[s["confianca"]],
+    res["estruturas"].sort(key=lambda s: (s["categoria"] != structures.HYBRID, structures.ORDER[s["confianca"]],
                                           -(s.get("ano") or 0)))
     res["compostos"] = structures.group_compounds(res["estruturas"])
 
@@ -124,7 +155,7 @@ def process_organic(http, name: str, cfg: dict) -> dict:
     by_doi = {p["doi"]: p for p in papers if p.get("doi")}
     doi_structs: dict = {}
     for s in res["estruturas"]:
-        if s.get("doi") and s["confianca"] in (structures.CONFIRMADA, structures.PROVAVEL):
+        if s.get("doi") and s["confianca"] in structures.FORTES and s["categoria"] == scoring.HYBRID:
             doi_structs.setdefault(s["doi"], []).append(f"{s['fonte']}:{s['id']}")
     lookup_fail = 0
     for doi, ids in doi_structs.items():
@@ -154,11 +185,12 @@ def process_organic(http, name: str, cfg: dict) -> dict:
     if lookup_fail:
         res["fontes"].setdefault("Crossref", {"ok": True})["falhas_parciais"] = [f"{lookup_fail} DOI(s) sem metadados"]
 
-    # 4) depósitos CSD ligados aos artigos estruturais (via DataCite) ---------
+    # 4) depósitos CSD de cada artigo estrutural (via DataCite), com o nome químico de cada um
     if cfg["usar_datacite"]:
         targets = [p for p in papers if p.get("doi") and p.get("relevante")
                    and (p["uso"] == literature.ESTRUTURAL)]
         targets.sort(key=lambda p: (not p.get("estruturas_ligadas"), -(p.get("citacoes") or 0)))
+        all_terms = terms.get("cations", []) + terms.get("neutros", [])
         n_fail, err = 0, ""
         for p in targets[: cfg["max_doi_datacite"]]:
             try:
@@ -169,20 +201,24 @@ def process_organic(http, name: str, cfg: dict) -> dict:
                 if n_fail >= 3:
                     break
                 continue
+            for d in deps:
+                d["nome_cita_o_organico"] = bool(find_terms_in_chemname(d["nome"], all_terms))
             p["depositos_csd"] = [d["ccdc"] for d in deps if d.get("ccdc")]
+            p["depositos_csd_com_o_organico"] = [d["ccdc"] for d in deps if d["nome_cita_o_organico"] and d.get("ccdc")]
             res["depositos_csd"] += deps
         if targets:
             ok = n_fail == 0
-            res["fontes"]["DataCite (depósitos CCDC)"] = {"ok": ok, "artigos_consultados": min(len(targets), cfg["max_doi_datacite"])}
+            res["fontes"]["CSD (depósitos por artigo, DataCite)"] = {
+                "ok": ok, "artigos_consultados": min(len(targets), cfg["max_doi_datacite"])}
             if not ok:
-                res["fontes"]["DataCite (depósitos CCDC)"]["erro"] = err
+                res["fontes"]["CSD (depósitos por artigo, DataCite)"]["erro"] = err
 
     order = {literature.ESTRUTURAL: 0, literature.AMBIGUO: 1, literature.ADITIVO: 2, literature.MENCAO: 3,
              literature.NAO_VERIFICAVEL: 4}
     papers.sort(key=lambda p: (order.get(p.get("uso"), 9), -(p.get("citacoes") or 0)))
     res["literatura"] = papers
     res["resumo"] = scoring.summarize(res)
-    res["completo"] = res["resumo"]["busca_completa"]
+    res["completo"] = not any(not v.get("ok") or v.get("falhas_parciais") for v in res["fontes"].values())
     res["fim"] = dt.datetime.now().isoformat(timespec="seconds")
     return res
 
@@ -217,10 +253,13 @@ def run(names: list, out_dir, http, cfg: dict, redo: bool = False, retry_incompl
         if path.exists() and not redo:
             try:
                 prev = json.loads(path.read_text(encoding="utf-8"))
-                if prev.get("completo") or not retry_incomplete:
+                same_cfg = prev.get("config") == json.loads(json.dumps(config_signature(cfg)))
+                if same_cfg and (prev.get("completo") or not retry_incomplete):
                     log.info("[%d/%d] %s — já concluído (checkpoint), pulando", i, total, name)
                     continue
-                log.info("[%d/%d] %s — checkpoint incompleto, refazendo fontes que falharam", i, total, name)
+                log.info("[%d/%d] %s — %s", i, total, name,
+                         "checkpoint incompleto, refazendo o que falhou" if same_cfg
+                         else "parâmetros mudaram desde o checkpoint, refazendo")
             except ValueError:
                 log.warning("[%d/%d] %s — checkpoint corrompido, refazendo", i, total, name)
         else:

@@ -37,9 +37,11 @@ def _name(r):
 def table_summary(results):
     head = ["Orgânico (entrada)", "Nível de exploração", "Índice de oportunidade (0–100)", "Parecer",
             "Busca completa?", "Nome no PubChem", "CID", "Fórmula", "Massa molar",
-            "Estruturas híbridas confirmadas/prováveis", "…das quais confirmadas por grafo",
-            "Estruturas híbridas apenas possíveis", "Compostos híbridos distintos",
-            "Sais de haleto sem metal (estruturas)", "Combinações M–X reportadas", "Dimensionalidades",
+            "Estruturas de haleto metálico (amostras únicas)", "…no COD", "…no CSD (por nome)",
+            "…confirmadas por grafo (CIF)", "…com o orgânico como cátion", "Papel do orgânico",
+            "Indícios fracos (inconclusivos)", "Candidatas por fórmula não verificadas",
+            "Sais de haleto sem metal (estruturas)", "Entradas do CSD que citam o orgânico (qualquer composto)",
+            "Combinações M–X (nº de artigos)", "Dimensionalidades (COD)",
             "Combinações M–X não encontradas (núcleo)", "Publicações estruturais", "Grupos independentes (aprox.)",
             "Citações somadas (estruturais)", "Primeiro ano", "Último ano", "Artigos: aditivo/passivação",
             "Artigos: ambíguos", "Artigos: menções", "Artigos não verificáveis", "Depósitos CSD ligados (DataCite)",
@@ -53,8 +55,10 @@ def table_summary(results):
         rows.append([
             _name(r), s["nivel_exploracao"], s["indice_oportunidade"], s["parecer"], _yn(s["busca_completa"]),
             o.get("titulo", ""), o.get("cid", ""), o.get("formula_hill", ""), o.get("massa_molar", ""),
-            s["n_estruturas_hibridas_fortes"], s["n_estruturas_hibridas_confirmadas"],
-            s["n_estruturas_hibridas_possiveis"], s["n_compostos_hibridos"], s["n_sais_haleto_sem_metal"],
+            s["n_estruturas_hibridas_fortes"], s["n_estruturas_cod"], s["n_estruturas_csd"],
+            s["n_estruturas_hibridas_confirmadas"], s["n_como_cation"], _j(s["papeis_do_organico"]),
+            s["n_estruturas_hibridas_possiveis"], s["n_candidatas_nao_verificadas"],
+            s["n_sais_haleto_sem_metal"], s["n_csd_qualquer_composto"] if s["n_csd_qualquer_composto"] is not None else "",
             _j(s["combinacoes_MX"]), _j(s["dimensionalidades"]), _j(s["lacunas_MX"]),
             s["n_publicacoes_estruturais"], s["n_grupos_independentes"], s["citacoes_estruturais"],
             s["primeiro_ano"] or "", s["ultimo_ano"] or "", s["n_artigos_aditivo"], s["n_artigos_ambiguos"],
@@ -72,13 +76,15 @@ def table_summary(results):
 
 
 def table_compounds(results):
-    head = ["Orgânico", "Composto (fórmula reduzida, sem H)", "Categoria", "Melhor confiança", "Metais", "Haletos",
+    head = ["Orgânico", "Banco", "Composto (COD: fórmula reduzida sem H; CSD: nome)", "Categoria", "Melhor confiança",
+            "Papel do orgânico", "Metais", "Haletos",
             "Nº de depósitos", "Nº de publicações (DOIs)", "Primeiro ano", "Último ano", "Grupos espaciais",
             "Arquitetura estrutural", "Entradas", "DOIs"]
     rows = []
     for r in results:
         for g in r.get("compostos", []):
-            rows.append([_name(r), g["composto"], g["categoria"], g["melhor_confianca"], _j(g["metais"]),
+            rows.append([_name(r), g.get("fonte", ""), g["composto"], g["categoria"], g["melhor_confianca"],
+                         _j(g.get("papeis", [])), _j(g["metais"]),
                          _j(g["haletos"]), g["n_depositos"], g["n_publicacoes"], g["primeiro_ano"] or "",
                          g["ultimo_ano"] or "", _j(g["grupos_espaciais"]), _j(g["classificacoes"], " | "),
                          _j(g["entradas"]), _j(g["dois"])])
@@ -86,9 +92,9 @@ def table_compounds(results):
 
 
 def table_structures(results):
-    head = ["Orgânico", "Fonte", "ID", "Link", "Confiança", "Motivo da confiança", "Categoria", "Fórmula",
-            "Nome químico no banco", "Arquitetura estrutural", "Dimensionalidade M–X", "Compartilhamento",
-            "Nº coordenação M–X", "d(M–X) média (Å)", "Orgânico coordenado ao metal?", "Desordem no CIF?",
+    head = ["Orgânico", "Fonte", "ID", "Link", "Confiança", "Motivo da confiança", "Categoria", "Papel do orgânico",
+            "Fórmula", "Nome químico no banco", "Arquitetura estrutural", "Dimensionalidade M–X", "Compartilhamento",
+            "Esfera de coordenação", "d(M–X) média (Å)", "Orgânico coordenado ao metal?", "Desordem no CIF?",
             "Orgânicos por fórmula (k)", "Estado do orgânico (balanço de H)", "Espécies extras", "Grupo espacial",
             "a", "b", "c", "α", "β", "γ", "Volume", "Z", "T (K)", "R", "Ano", "Revista", "DOI", "Título do artigo",
             "Encontrada por"]
@@ -104,9 +110,10 @@ def table_structures(results):
                 cell = a.get("cela") or cell
             rows.append([
                 _name(r), s["fonte"], s["id"], s.get("url", ""), s["confianca"], s.get("motivo_confianca", ""),
-                s["categoria"], s.get("formula_txt", ""), s.get("nome", ""), s.get("classificacao", ""),
+                s["categoria"], s.get("papel_do_organico", ""), s.get("formula_txt", ""), s.get("nome", ""),
+                s.get("classificacao", ""),
                 f"{dim}D" if dim is not None else "", _j(a.get("compartilhamento") if ok else ""),
-                _j(a.get("numeros_de_coordenacao_MX") if ok else ""), a.get("distancia_MX_media", "") if ok else "",
+                _j(a.get("esferas_de_coordenacao") if ok else ""), a.get("distancia_MX_media", "") if ok else "",
                 _yn(a.get("organico_coordenado_ao_metal")) if ok else "", _yn(a.get("desordem")) if ok else "",
                 m.get("k", ""), m.get("papel", ""), _j([f"{x['n']}×{x['especie']}" for x in m.get("extras", [])]),
                 s.get("grupo_espacial", ""), *[c if c is not None else "" for c in cell[:6]],
@@ -140,9 +147,11 @@ def table_literature(results):
 
 
 def table_csd(results):
-    head = ["Orgânico", "Nº CCDC", "DOI do depósito", "DOI do artigo", "Título do depósito", "Ano", "Detalhes"]
-    rows = [[_name(r), d.get("ccdc") or "", d.get("doi_deposito") or "", d.get("doi_artigo") or "",
-             d.get("titulo", ""), d.get("ano") or "", d.get("detalhes", "")]
+    head = ["Orgânico", "Nº CCDC", "Nome químico (CSD)", "Nome cita o orgânico?", "Link do depósito", "DOI do artigo",
+            "Ano", "Revista", "Autores"]
+    rows = [[_name(r), d.get("ccdc") or "", d.get("nome", ""), _yn(d.get("nome_cita_o_organico")),
+             d.get("url") or "", d.get("doi_artigo") or "", d.get("ano") or "", d.get("revista", ""),
+             d.get("autores", "")]
             for r in results for d in r.get("depositos_csd", [])]
     return head, rows
 
@@ -178,7 +187,7 @@ def table_params(cfg, results, total):
 
 SHEETS = [
     ("Resumo", table_summary), ("Compostos", table_compounds), ("Estruturas", table_structures),
-    ("Literatura", table_literature), ("Depósitos CSD", table_csd), ("Descartadas", table_discarded),
+    ("Literatura", table_literature), ("Depósitos CSD por artigo", table_csd), ("Descartadas", table_discarded),
     ("Fontes", table_sources),
 ]
 
@@ -254,7 +263,7 @@ def _write_xlsx(tables, path: Path):
                         row[1].fill = PatternFill("solid", fgColor=color)
                 row[3].alignment = Alignment(wrap_text=True, vertical="top")
             ws.column_dimensions["D"].width = 90
-        link_cols = [i for i, h in enumerate(head) if h == "Link"]
+        link_cols = [i for i, h in enumerate(head) if h.startswith("Link")]
         for row in ws.iter_rows(min_row=2):
             for i in link_cols:
                 if str(row[i].value or "").startswith("http"):
@@ -328,8 +337,9 @@ def render_html(results, cfg, total=None) -> str:
                      "Não trate esses como inexplorados antes de rodar novamente.</p>")
     parts.append("<h2>Resumo (ordenado pelo índice de oportunidade)</h2><div class='scroll'><table><tr>"
                  "<th>Orgânico</th><th>Fórmula</th><th>Nível de exploração</th><th class='num'>Índice</th>"
-                 "<th class='num'>Estruturas</th><th class='num'>Publ. estruturais</th><th class='num'>Grupos</th>"
-                 "<th class='num'>Aditivo</th><th>M–X reportados</th><th>Dimens.</th><th class='num'>Sítios básicos</th></tr>")
+                 "<th class='num'>Estruturas</th><th class='num'>como cátion</th><th class='num'>Publ. estruturais</th>"
+                 "<th class='num'>Grupos</th><th class='num'>Aditivo</th><th>M–X (nº de artigos)</th>"
+                 "<th class='num'>Sítios básicos</th></tr>")
     for n, r in enumerate(ordered):
         o, s = r.get("organico") or {}, r["resumo"]
         parts.append(
@@ -337,10 +347,12 @@ def render_html(results, cfg, total=None) -> str:
             f"<td>{_e(o.get('formula_hill', ''))}</td><td>{_tag(s['nivel_exploracao'])}</td>"
             f"<td class='num'>{s['indice_oportunidade']}</td><td class='num'>{s['n_estruturas_hibridas_fortes']}"
             f"{'+' + str(s['n_estruturas_hibridas_possiveis']) + '?' if s['n_estruturas_hibridas_possiveis'] else ''}</td>"
+            f"<td class='num'>{s['n_como_cation']}</td>"
             f"<td class='num'>{s['n_publicacoes_estruturais']}</td><td class='num'>{s['n_grupos_independentes']}</td>"
             f"<td class='num'>{s['n_artigos_aditivo']}</td><td>{_e(_j(s['combinacoes_MX']))}</td>"
-            f"<td>{_e(_j(s['dimensionalidades']))}</td><td class='num'>{_e(o.get('n_sitios_protonaveis', ''))}</td></tr>")
-    parts.append("</table></div><p class='small muted'>Estruturas: confirmadas/prováveis (+N? = apenas possíveis). "
+            f"<td class='num'>{_e(o.get('n_sitios_protonaveis', ''))}</td></tr>")
+    parts.append("</table></div><p class='small muted'>Estruturas: amostras únicas de haleto metálico com o orgânico, COD + CSD "
+                 "(+N? = indícios inconclusivos). "
                  "Todos os detalhes e colunas adicionais estão em <b>resultados.xlsx</b>.</p><h2>Detalhes por orgânico</h2>")
     for n, r in enumerate(ordered):
         parts.append(_organic_block(n, r))
@@ -365,21 +377,25 @@ def _organic_block(n, r) -> str:
     for w in o.get("avisos", []):
         p.append(f"<p class='warn small'>{_e(w)}</p>")
     if r.get("compostos"):
-        p.append("<h3>Compostos reportados (amostras)</h3><div class='scroll'><table><tr><th>Composto</th><th>Categoria</th>"
-                 "<th>Confiança</th><th class='num'>Depósitos</th><th class='num'>Publicações</th><th>Anos</th>"
-                 "<th>Grupo espacial</th><th>Arquitetura</th></tr>")
-        for g in r["compostos"]:
+        p.append("<h3>Compostos reportados (amostras)</h3><div class='scroll'><table><tr><th>Banco</th><th>Composto</th>"
+                 "<th>Categoria</th><th>Confiança</th><th>Papel do orgânico</th><th class='num'>Depósitos</th>"
+                 "<th class='num'>Publicações</th><th>Anos</th><th>Grupo espacial</th><th>Arquitetura</th></tr>")
+        for g in r["compostos"][:80]:
             yrs = f"{g['primeiro_ano']}–{g['ultimo_ano']}" if g["primeiro_ano"] else ""
-            p.append(f"<tr><td>{_e(g['composto'])}</td><td>{_e(g['categoria'])}</td><td>{_e(g['melhor_confianca'])}</td>"
+            p.append(f"<tr><td>{_e(g.get('fonte', ''))}</td><td>{_e(g['composto'])}</td><td>{_e(g['categoria'])}</td>"
+                     f"<td>{_e(g['melhor_confianca'])}</td><td>{_e(_j(g.get('papeis', [])))}</td>"
                      f"<td class='num'>{g['n_depositos']}</td><td class='num'>{g['n_publicacoes']}</td><td>{_e(yrs)}</td>"
                      f"<td>{_e(_j(g['grupos_espaciais']))}</td><td>{_e(_j(g['classificacoes'], ' | '))}</td></tr>")
         p.append("</table></div>")
+        if len(r["compostos"]) > 80:
+            p.append(f"<p class='small muted'>Mostrando 80 de {len(r['compostos'])}; lista completa no Excel.</p>")
     if r.get("estruturas"):
         p.append("<h3>Estruturas cristalinas</h3><div class='scroll'><table><tr><th>Entrada</th><th>Confiança</th>"
-                 "<th>Fórmula</th><th>Arquitetura</th><th>Grupo esp.</th><th>Ano</th><th>DOI</th></tr>")
+                 "<th>Fórmula / nome</th><th>Arquitetura</th><th>Grupo esp.</th><th>Ano</th><th>DOI</th></tr>")
         for x in r["estruturas"][:60]:
-            p.append(f"<tr><td><a href='{_e(x.get('url', ''))}'>{_e(x['fonte'])} {_e(x['id'])}</a></td>"
-                     f"<td>{_e(x['confianca'])}</td><td>{_e(x.get('formula_txt', ''))}</td>"
+            ident = x["id"] if x["fonte"] == "CSD" else f"{x['fonte']} {x['id']}"
+            p.append(f"<tr><td><a href='{_e(x.get('url', ''))}'>{_e(ident)}</a></td>"
+                     f"<td>{_e(x['confianca'])}</td><td>{_e(x.get('formula_txt') or x.get('nome', ''))}</td>"
                      f"<td>{_e(x.get('classificacao', ''))}</td><td>{_e(x.get('grupo_espacial', ''))}</td>"
                      f"<td>{_e(x.get('ano') or '')}</td><td>{_doi_link(x.get('doi'))}</td></tr>")
         p.append("</table></div>")
@@ -404,8 +420,13 @@ def _organic_block(n, r) -> str:
     if s["n_nao_verificaveis"]:
         p.append(f"<p class='small muted'>{s['n_nao_verificaveis']} artigo(s) retornados pelas buscas não citam o orgânico "
                  "no título/resumo (provável menção só no texto completo) — listados na aba Literatura do Excel.</p>")
+    if s["n_candidatas_nao_verificadas"]:
+        p.append(f"<p class='warn small'>{s['n_candidatas_nao_verificadas']} candidatas do COD (fórmula compatível) não "
+                 "tiveram o CIF verificado por causa do limite; rode com --max-cifs maior para concluir.</p>")
     if r.get("depositos_csd"):
-        nums = ", ".join(str(d["ccdc"]) for d in r["depositos_csd"] if d.get("ccdc"))
-        p.append(f"<p class='small'><b>Depósitos CCDC ligados aos artigos estruturais:</b> {_e(nums)}</p>")
+        n_dep = len({d.get("ccdc") for d in r["depositos_csd"]})
+        n_org = len({d.get("ccdc") for d in r["depositos_csd"] if d.get("nome_cita_o_organico")})
+        p.append(f"<p class='small'><b>Depósitos CSD dos artigos estruturais:</b> {n_dep} no total, {n_org} com o "
+                 "orgânico no nome químico (lista na aba “Depósitos CSD por artigo” do Excel).</p>")
     p.append("</details>")
     return "".join(p)

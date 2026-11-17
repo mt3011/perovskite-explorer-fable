@@ -27,21 +27,24 @@ CONTEXT_TERMS = [
 _METAL = (r"(lead|tin|bismuth|antimony|copper|silver|gold|germanium|indium|thallium|cadmium|zinc|"
           r"manganese|mercury|tellurium|palladium|platinum|zirconium|hafnium)")
 _HAL = r"(iodide|bromide|chloride|fluoride|halide)s?"
+_ATE = (r"(?<![a-z])(?:di|tri|tetra|penta|hexa|hepta|octa|nona|deca)?(?:fluoro|chloro|bromo|iodo|halo)?"
+        r"(?:plumb|bismuth|antimon|stann|cupr|argent|zinc|cadm|mercur|mangan|ind|tellur|german|aur|pallad|"
+        r"platin|zircon|hafn|metall?)ates?\b")
 CONTEXT_RX = re.compile(
-    r"perovskit|halometal|metal[- ]halide|"
-    r"(plumb|bismuth|antimon|stann|cupr|argent|zinc|cadm|mercur|mangan|indat|tellur|german|aur|pallad|"
-    r"platin|zircon|hafn)ates?\b|"
+    r"perovskit|halometal|metal[- ]halide|" + _ATE + r"|"
     + _METAL + r"(\s?\((ii|iii|iv|i)\))?[- ](based[- ])?" + _HAL + r"|"
     + _HAL + r"[- ](hybrid|perovskit|semiconductor)|"
     r"hybrid[- ](metal[- ])?" + _HAL + r"|"
     r"organic[- ]inorganic[- ](hybrid[- ])?(metal[- ])?(halide|iodide|bromide|chloride|perovskit)|"
+    r"(cuprous|cupric|plumbous|stannous|mercuric|argentous) " + _HAL + r"|"
     r"(pb|sn|ge|bi|sb|cu|ag|mn|zn|cd|hg|in|te)\s?\d?\s?(i|br|cl)\s?\d"
 )
 
 # pistas de uso ESTRUTURAL (o orgânico faz parte da rede cristalina): (rótulo, regex, peso)
 STRUCT_CUES = [
     ("cristalografia", r"crystal structure|single[- ]crystal|x-ray diffraction|crystallograph|space group|"
-                       r"crystalli[sz]es? in|isostructural|structurally characteri[sz]ed|structure determination", 3),
+                       r"crystalli[sz]es? in|isostructural|structurally characteri[sz]ed|structure determination|"
+                       r"crystal engineering", 3),
     ("dimensionalidade", r"\b[0-3]d\b|zero-dimensional|one-dimensional|two-dimensional|three-dimensional|"
                          r"low-dimensional|layered|ruddlesden|dion-jacobson|quantum[- ]well", 2),
     ("arquitetura", r"octahedra|\bchains?\b|inorganic layers?|corner-sharing|edge-sharing|face-sharing|"
@@ -49,10 +52,13 @@ STRUCT_CUES = [
     ("halometalato", r"plumbate|bismuthate|antimonate|stannate|cuprate|argentate|halometal|iodometal|"
                      r"bromometal|chlorometal|organic[- ]inorganic|"
                      r"hybrid (compound|material|halide|perovskite|iodide|bromide|chloride|salt|crystal)", 2),
+    ("química de coordenação/supramolecular", r"coordination (polymer|compound|complex)|\bcomplex(es)?\b|"
+                                              r"\bligands?\b|supramolecular|hydrogen[- ]bond|halogen[- ]bond", 2),
     ("propriedades do material", r"band ?gap|photoluminescen|semiconduct|self-trapped exciton|"
                                  r"broadband emission|white[- ]light|ferroelectric|phase transition|"
-                                 r"thermochrom|dielectric|scintillat", 1),
-    ("síntese de novo composto", r"\bnovel\b|\bnew\b|synthesi[sz]ed|synthesis of|we report|"
+                                 r"thermochrom|dielectric|scintillat|nonlinear optic|second[- ]harmonic|birefring", 1),
+    ("estrutura (termo genérico)", r"\bstructur", 1),
+    ("síntese de novo composto", r"\bnovel\b|\bnew\b|synthesi[sz]ed|synthesis of|we report|is reported|"
                                  r"(was|were) (prepared|obtained|grown)", 1),
 ]
 # pistas de uso NÃO estrutural (aditivo, passivação, camada de transporte...)
@@ -257,23 +263,51 @@ def _int(v):
         return None
 
 
-def _paper_key(p: dict) -> str:
-    if p.get("doi"):
-        return "doi:" + p["doi"]
-    return "t:" + re.sub(r"[^a-z0-9]", "", normalize_text(p.get("titulo", "")))[:80] + str(p.get("ano") or "")
+def _title_key(p: dict) -> str:
+    return re.sub(r"[^a-z0-9]", "", normalize_text(p.get("titulo", "")))[:120]
+
+
+def _clean_title(t: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", t or "")).strip()
 
 
 def merge(papers: list) -> list:
-    """Une registros do mesmo artigo vindos de fontes diferentes (por DOI ou título+ano)."""
-    merged: dict = {}
+    """Une registros do mesmo artigo vindos de fontes diferentes.
+
+    Mesmo DOI = mesmo artigo. Títulos idênticos (>= 40 caracteres) também são unidos: é o caso
+    de preprint + versão publicada, que não devem contar como duas publicações.
+    """
+    merged: list = []
+    by_doi: dict = {}
+    by_title: dict = {}
     for p in papers:
-        if not p.get("titulo") and not p.get("doi"):
+        p = dict(p)
+        p["titulo"] = _clean_title(p.get("titulo", ""))
+        if not p["titulo"] and not p.get("doi"):
             continue
-        k = _paper_key(p)
-        if k not in merged:
-            merged[k] = dict(p)
+        tk = _title_key(p)
+        m = by_doi.get(p.get("doi")) if p.get("doi") else None
+        if m is None and len(tk) >= 40:
+            m = by_title.get(tk)
+        if m is None:
+            merged.append(p)
+            if p.get("doi"):
+                by_doi[p["doi"]] = p
+            if len(tk) >= 40:
+                by_title[tk] = p
             continue
-        m = merged[k]
+        if p.get("doi") and p["doi"] != m.get("doi"):
+            m.setdefault("outros_dois", [])
+            if m.get("doi"):
+                # mantém como principal o DOI do registro mais citado
+                if (p.get("citacoes") or 0) > (m.get("citacoes") or 0):
+                    m["outros_dois"].append(m["doi"])
+                    m["doi"], m["url"] = p["doi"], p.get("url") or m.get("url")
+                else:
+                    m["outros_dois"].append(p["doi"])
+            else:
+                m["doi"] = p["doi"]
+            by_doi[p["doi"]] = m
         m["fontes"] = sorted(set(m["fontes"]) | set(p["fontes"]))
         if len(p.get("resumo") or "") > len(m.get("resumo") or ""):
             m["resumo"] = p["resumo"]
@@ -284,7 +318,7 @@ def merge(papers: list) -> list:
         for f in ("ano", "revista", "titulo", "url", "tipo"):
             m[f] = m.get(f) or p.get(f)
         m["retratado"] = m.get("retratado") or p.get("retratado")
-    return list(merged.values())
+    return merged
 
 
 def classify(p: dict, terms: dict) -> dict:
@@ -331,6 +365,10 @@ def classify(p: dict, terms: dict) -> dict:
         elif re.search(rx, text):
             a_score += w / 2
             p["pistas_aditivo"].append(label + " (fora da frase do orgânico)")
+    eq = [t for t in set(hits) if re.search(r"=\s*" + term_regex(t).pattern, text)]
+    if eq:
+        s_score += 3
+        p["pistas_estruturais"].append("orgânico definido como componente de fórmula (X = orgânico)")
     if any(t.endswith("ium") or "ammonio" in t for t in hits):
         s_score += 3
         p["pistas_estruturais"].append("orgânico citado na forma catiônica (-ium)")
