@@ -97,3 +97,10 @@ def test_formula_match_with_solvent_is_lower_tier():
 
 def test_composition_key_reduces_and_drops_h():
     assert matching.composition_key({"C": 24, "H": 18, "N": 4, "Hg": 2, "I": 8}) == "C12Hg1I4N2".replace("Hg1", "Hg")
+
+
+def test_generic_ion_names_are_not_search_terms():
+    t = names.build_terms("Phenethylamine", "Phenethylamine", "2-phenylethanamine", [],
+                          ["Phenethylammonium", "iodanium", "Hydron;phenethylamine"])
+    assert "phenethylammonium" in t["cations"] and "iodanium" not in t["cations"]
+    assert not any(";" in c for c in t["cations"])

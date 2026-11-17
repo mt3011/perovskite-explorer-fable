@@ -297,6 +297,9 @@ nitro e N tipo pirrol **não** contam como básicos.
   | Phenazine | MODERADAMENTE EXPLORADO | 20 | 5 | 9 | 1 |
   | 3-Aminobenzoic acid | MODERADAMENTE EXPLORADO | 8 | 3 | 5 | 0 |
 
+- **Controle positivo**: a fenetilamina (espaçador clássico de perovskitas 2D) saiu como BEM
+  ESTABELECIDO — 103 estruturas, 95 publicações como cátion — e 12 estruturas reais do COD foram
+  classificadas como "2D — camadas de octaedros MX6 compartilhando vértices (tipo perovskita)".
 - **OpenAlex**: testado com a fenazina (200 registros lidos e classificados) até a cota anônima do
   dia acabar; por isso o resultado de exemplo acima foi gerado **sem** OpenAlex. Com a sua chave a
   lista de literatura tende a crescer.
@@ -304,7 +307,7 @@ nitro e N tipo pirrol **não** contam como básicos.
   1,10-fenantrolina passando por fenazina (mesma fórmula) — barrada pelo grafo; perclorato contado
   como cloreto — barrado pela checagem de haleto; derivados como `dibenzo[a,c]phenazine` contados
   como fenazina — barrados pela regra de nome próprio.
-- **Testes automáticos**: 53 testes (`python -m pytest`) cobrem fórmula, nomes, análise de CIF nas
+- **Testes automáticos**: 54 testes (`python -m pytest`) cobrem fórmula, nomes, análise de CIF nas
   estruturas de referência, classificação de literatura, cache, retomada após interrupção e falha
   de fonte. Os testes de ponta a ponta usam respostas sintéticas, não dados reais.
 - **Não validado**: o conector da API do CSD (próxima seção). O classificador de literatura e o

@@ -145,6 +145,9 @@ def cmd_diagnostico(args) -> int:
     ]
     failures = 0
     for label, url, params, show in checks:
+        if label == "OpenAlex" and not cfg.get("openalex_api_key"):
+            print(f"[ -- ] {label:14s} sem chave de API: fonte desativada (opcional; defina OPENALEX_API_KEY)")
+            continue
         try:
             status, text = http.request(url, params=params, use_cache=False)
             print(f"[ OK ] {label:14s} {show(json.loads(text))}" if status == 200
@@ -162,7 +165,7 @@ def cmd_diagnostico(args) -> int:
           + ("instalada (conector CSD será usado)" if csd.available() else "não instalada (opcional; ver guia)"))
     http.close()
     print("\nTodas as fontes responderam." if not failures else
-          f"\n{failures} fonte(s) falharam. O programa funciona sem elas, mas marca a busca como incompleta.")
+          f"\n{failures} fonte(s) falharam. O programa roda sem elas, mas marca a busca como incompleta.")
     return 1 if failures else 0
 
 

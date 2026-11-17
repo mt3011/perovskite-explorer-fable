@@ -77,6 +77,10 @@ _SPECIAL_RULES = [
 ]
 
 
+_GENERIC_IONS = {"iodanium", "bromanium", "chloranium", "fluoranium", "azanium", "oxidanium", "sulfanium",
+                 "phosphanium", "hydron", "ammonium", "oxonium", "hydronium"}
+
+
 def cation_variants(name: str) -> list:
     """Gera nomes prováveis da forma protonada (catiônica) a partir de um nome neutro."""
     n = normalize_text(name)
@@ -113,7 +117,8 @@ def build_terms(input_name: str, title: str = "", iupac: str = "", synonyms=None
             add(neutral, cand, max_neutral)
     cations: list = []
     for cand in list(extra_cations or []):
-        if ";" not in str(cand):          # títulos de mistura do PubChem ("hydron;phenazine")
+        # descarta títulos de mistura do PubChem ("hydron;phenazine") e nomes de íons genéricos
+        if ";" not in str(cand) and normalize_text(cand) not in _GENERIC_IONS:
             add(cations, cand, max_cation)
     # Variantes geradas por regra só a partir dos nomes mais confiáveis (entrada, título e IUPAC):
     # um sinônimo obscuro poderia gerar o nome de OUTRO composto (ex.: acridizine -> acridizinium).
