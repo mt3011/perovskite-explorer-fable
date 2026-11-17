@@ -43,6 +43,10 @@ python -m perovskite_explorer buscar exemplos/organicos.txt -o resultados
 Abra `resultados/relatorio.html` (visão geral) e `resultados/resultados.xlsx` (todas as evidências).
 Se a execução for interrompida, **rode o mesmo comando de novo**: ela continua de onde parou.
 
+Para a cobertura máxima de literatura, crie uma chave gratuita do OpenAlex e informe-a em
+`OPENALEX_API_KEY` (ou copie `exemplos/config_exemplo.json` para `config_local.json`). Sem a chave
+o programa funciona normalmente, usando Europe PMC e Crossref.
+
 A lista é um arquivo de texto com um orgânico por linha (nome em inglês, CAS, `SMILES:...`,
 InChIKey ou `CID:1234`); linhas com `#` são comentários. Veja `exemplos/organicos.txt`.
 

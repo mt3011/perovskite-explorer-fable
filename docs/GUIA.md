@@ -64,7 +64,8 @@ export OPENALEX_API_KEY="sua_chave"
 ```
 
 No Windows (PowerShell): `$env:OPENALEX_API_KEY="sua_chave"`. Também é possível gravar a chave em
-um arquivo `config_local.json` (`{"openalex_api_key": "sua_chave"}`), que o git ignora.
+um arquivo `config_local.json` na pasta do programa (modelo em `exemplos/config_exemplo.json`),
+que o git ignora — assim a chave não vai para o repositório.
 
 ## 2. Se a execução for interrompida
 
@@ -182,7 +183,7 @@ se o nome químico de cada um cita o orgânico.
 | **provável (nome sistemático no CSD)** | nome do CSD cita o orgânico; sem CIF | sim |
 | possível (só fórmula) | fórmula compatível, CIF analisado mas inconclusivo | não — vira "indício" |
 | possível (só nome) | nome cita, mas o grafo do CIF não confirmou | não — vira "indício" |
-| descartada | isômero, ou parte orgânica ordenada sem a molécula | não (aba Descartadas) |
+| descartada | isômero; parte orgânica ordenada sem a molécula; ou o halogênio não é haleto | não (aba Descartadas) |
 
 Ordem de verificação dos CIFs: sempre as entradas com nome citado e as de fórmula exata com o
 orgânico protonado; depois as de fórmula exata com orgânico neutro, até `--max-cifs`. Se o limite
@@ -201,6 +202,9 @@ lista.
 
 1. **Ligações M–X**: metal e haleto ligados se a distância for menor que a soma dos raios
    covalentes + 0,6 Å (Pb–I até 3,45 Å). Cs, Rb, Ba e Sr são tratados como cátions do sítio A.
+   Só conta como haleto o halogênio que não está ligado a C, O, N, B, P ou S: o Cl de um
+   perclorato, de um diclorometano de solvatação ou de um substituinte orgânico não é haleto, e
+   uma entrada em que só exista esse tipo de halogênio é descartada.
 2. **Dimensionalidade**: percorre-se a rede M–X anotando em qual cela cada átomo é alcançado; os
    ciclos que fecham em outra cela dão vetores de translação, e o posto desses vetores é a
    dimensionalidade (0D, 1D, 2D ou 3D).

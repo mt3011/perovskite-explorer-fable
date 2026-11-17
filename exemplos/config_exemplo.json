@@ -1,0 +1,8 @@
+{
+  "email": "",
+  "openalex_api_key": "",
+  "metais": ["Pb", "Sn", "Ge", "Bi", "Sb", "In", "Tl", "Cu", "Ag", "Au", "Cd", "Hg", "Zn", "Mn", "Te", "Pd", "Pt", "Zr", "Hf"],
+  "halogenios": ["Cl", "Br", "I"],
+  "fontes_literatura": ["openalex", "europepmc", "crossref"],
+  "max_cifs": 300
+}
