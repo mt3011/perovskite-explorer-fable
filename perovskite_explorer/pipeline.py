@@ -34,7 +34,8 @@ DEFAULT_CONFIG = {
     "usar_datacite": True,     # CSD por nome e por artigo, via metadados públicos do DataCite
     "max_cifs": 300,           # limite de CIFs para candidatas só por fórmula com orgânico neutro (B2)
     "max_paginas": 2,          # páginas de 100 resultados por fonte de literatura
-    "max_doi_datacite": 25,
+    "max_doi_datacite": 25,    # artigos estruturais cujos depósitos CCDC são listados
+    "max_doi_crossref": 80,    # artigos de estruturas cujos metadados/citações são buscados
     "email": None,
     "openalex_api_key": None,
     "semanticscholar_api_key": None,
@@ -160,16 +161,18 @@ def process_organic(http, name: str, cfg: dict) -> dict:
     for s in res["estruturas"]:
         if s.get("doi") and s["confianca"] in structures.FORTES and s["categoria"] == scoring.HYBRID:
             doi_structs.setdefault(s["doi"], []).append(f"{s['fonte']}:{s['id']}")
-    lookup_fail = 0
+    lookup_fail = n_lookup = 0
     for doi, ids in doi_structs.items():
         p = by_doi.get(doi)
         if p is None:
-            try:
-                p = literature.crossref_lookup(http, doi, cfg)
-            except SourceError as exc:
-                lookup_fail += 1
-                log.warning("Crossref (DOI %s): %s", doi, exc)
-                p = None
+            p = None
+            if n_lookup < cfg["max_doi_crossref"]:    # limite para orgânicos com centenas de estruturas
+                n_lookup += 1
+                try:
+                    p = literature.crossref_lookup(http, doi, cfg)
+                except SourceError as exc:
+                    lookup_fail += 1
+                    log.warning("Crossref (DOI %s): %s", doi, exc)
             if p is None:
                 s0 = next(s for s in res["estruturas"] if s.get("doi") == doi)
                 p = {"doi": doi, "titulo": s0.get("titulo", ""), "resumo": "", "ano": s0.get("ano"),

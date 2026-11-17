@@ -193,10 +193,13 @@ def unique_samples(strong: list) -> int:
 
 
 def group_compounds(structures: list) -> list:
-    """Agrupa depósitos do mesmo composto: é aqui que se mede 'o quanto já foi reportado'."""
+    """Agrupa depósitos do mesmo composto: é aqui que se mede 'o quanto já foi reportado'.
+
+    Só entram entradas com evidência (confirmadas ou prováveis); indícios ficam na lista de estruturas.
+    """
     groups: dict = {}
     for s in structures:
-        if s["confianca"] == DESCARTADA:
+        if s["confianca"] not in FORTES:
             continue
         g = groups.setdefault((s["fonte"], s["composto"]), {
             "composto": s["composto"], "fonte": s["fonte"], "categoria": s["categoria"], "metais": s["metais"],
