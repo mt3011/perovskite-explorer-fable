@@ -95,8 +95,6 @@ def summarize(res: dict) -> dict:
     factor, why = viability(org)
     index = round(NOVELTY[level] * factor)
     failed = [k for k, v in (res.get("fontes") or {}).items() if not v.get("ok")]
-    if pending:
-        failed = failed + [f"verificação por CIF pendente em {len(pending)} candidatas (aumente --max-cifs)"]
     partial = [k for k, v in (res.get("fontes") or {}).items() if v.get("ok") and v.get("falhas_parciais")]
 
     summary = {
@@ -169,6 +167,9 @@ def _verdict(s: dict, org: dict) -> str:
     if org.get("grupos_acidos"):
         parts.append("Tem grupo ácido (" + ", ".join(sorted(set(org["grupos_acidos"]))) + "): pode coordenar ao metal "
                      "ou formar zwitterion.")
+    if s["n_candidatas_nao_verificadas"]:
+        parts.append(f"Pendente: {s['n_candidatas_nao_verificadas']} entradas do COD com fórmula compatível não tiveram "
+                     "o CIF verificado (limite); use --max-cifs maior para concluir.")
     if not s["busca_completa"]:
         parts.append("ATENÇÃO: busca incompleta (falha em: " + ", ".join(s["fontes_com_falha"]) + "); rode novamente.")
     return " ".join(parts)

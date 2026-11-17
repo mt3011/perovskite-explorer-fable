@@ -113,9 +113,14 @@ def build_terms(input_name: str, title: str = "", iupac: str = "", synonyms=None
             add(neutral, cand, max_neutral)
     cations: list = []
     for cand in list(extra_cations or []):
-        add(cations, cand, max_cation)
-    for base in list(neutral):
-        for v in cation_variants(base):
+        if ";" not in str(cand):          # títulos de mistura do PubChem ("hydron;phenazine")
+            add(cations, cand, max_cation)
+    # Variantes geradas por regra só a partir dos nomes mais confiáveis (entrada, título e IUPAC):
+    # um sinônimo obscuro poderia gerar o nome de OUTRO composto (ex.: acridizine -> acridizinium).
+    # Dos sinônimos, só os sistemáticos (com localizadores numéricos) entram.
+    systematic = [n for n in neutral if re.search(r"\d", n)]
+    for base in [input_name, title, iupac] + systematic:
+        for v in cation_variants(base or ""):
             add(cations, v, max_cation)
     return {"neutros": neutral, "cations": cations}
 
