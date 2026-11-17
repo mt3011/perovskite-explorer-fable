@@ -1,0 +1,18 @@
+data_CsNiCl3
+_chemical_formula_sum 'Cl3 Cs Ni'
+_cell_length_a 7.17
+_cell_length_b 7.17
+_cell_length_c 5.94
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 120
+_symmetry_space_group_name_H-M 'P 63/m m c'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Cs1 Cs 0.3333 0.6667 0.75
+Ni1 Ni 0 0 0
+Cl1 Cl 0.155 0.310 0.25

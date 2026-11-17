@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+# dados gerados pelo programa (cache HTTP e resultados de execuções)
+/cache/
+/resultados/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+config_local.json

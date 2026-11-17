@@ -1,0 +1,8 @@
+# Lista de orgânicos: um por linha. Linhas iniciadas por # são ignoradas.
+# Aceita nome (em inglês de preferência), número CAS, SMILES, InChIKey ou "CID:1234".
+4-Aminophenyl sulfone
+Phenazine
+Niacinamide
+Theobromine
+3-Aminobenzoic acid
+Nicotinic acid
