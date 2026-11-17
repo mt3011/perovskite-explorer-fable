@@ -172,3 +172,48 @@ def test_csd_connector_is_optional():
     from perovskite_explorer import csd
 
     assert csd.available() in (True, False)        # sem o pacote `ccdc`, apenas fica desativado
+
+
+# ------------------------------------------------------------------ nível sensível ao papel
+def _struct(role, doi, conf=st.CONFIRMADA):
+    return {"fonte": "COD", "id": doi, "doi": doi, "confianca": conf, "categoria": st.HYBRID,
+            "papel_do_organico": role, "metais": ["Cu"], "haletos": ["Cl"], "composto": doi, "ano": 2020,
+            "verificada": True, "analise": {"ok": False}}
+
+
+def _summary(structs):
+    from perovskite_explorer import scoring
+    res = {"organico": {"resolvido": True, "n_basicos_medios": 1}, "estruturas": structs, "literatura": [],
+           "fontes": {"x": {"ok": True}}, "descartadas": [], "depositos_csd": []}
+    return scoring.summarize(res)
+
+
+def test_ligand_only_use_is_not_counted_as_cation_exploration():
+    from perovskite_explorer import scoring
+    s = _summary([_struct(st.LIGAND, f"10.1/l{i}") for i in range(12)])
+    assert s["nivel_exploracao"] == scoring.LIGANTE and s["n_publicacoes_como_cation"] == 0
+    assert s["n_publicacoes_estruturais"] == 12 and s["indice_oportunidade"] == round(80 * 0.85)
+
+
+def test_cation_use_sets_the_level():
+    from perovskite_explorer import scoring
+    s = _summary([_struct(st.LIGAND, f"10.1/l{i}") for i in range(12)] + [_struct(st.CATION, "10.1/c1")])
+    assert s["nivel_exploracao"] == scoring.POUCO and s["n_publicacoes_como_cation"] == 1
+    assert s["n_publicacoes_so_ligante_ou_neutro"] == 12
+
+
+def test_unverified_candidates_do_not_count_as_evidence():
+    from perovskite_explorer import scoring
+    pend = _struct(st.UNKNOWN, "10.1/p", conf=st.POSSIVEL)
+    pend["verificada"] = False
+    s = _summary([pend])
+    assert s["nivel_exploracao"] == scoring.INEXPLORADO and s["n_candidatas_nao_verificadas"] == 1
+
+
+def test_target_metal_and_halide_filter():
+    org = {"C": 6, "H": 5, "N": 1, "O": 2}
+    f = lambda formula: st._category(formula, org, 1, ["Pb", "Sn"], ["Cl", "Br", "I"])   # noqa: E731
+    assert f({"C": 6, "H": 6, "N": 1, "O": 2, "Pb": 1, "I": 3}) == st.HYBRID
+    assert f({"C": 6, "H": 6, "N": 1, "O": 2, "La": 1, "Cl": 3}) == "outro"      # metal fora da lista
+    assert f({"C": 6, "H": 6, "N": 1, "O": 2, "Sn": 1, "F": 3}) == "outro"       # haleto não pedido
+    assert f({"C": 6, "H": 6, "N": 1, "O": 2, "Cl": 1}) == st.SALT

@@ -8,8 +8,6 @@ import json
 from pathlib import Path
 
 from . import __version__
-from . import literature as lit
-from . import structures as st
 
 
 def _j(v, sep=", "):
@@ -35,14 +33,17 @@ def _name(r):
 # --------------------------------------------------------------------------- #
 
 def table_summary(results):
-    head = ["Orgânico (entrada)", "Nível de exploração", "Índice de oportunidade (0–100)", "Parecer",
+    head = ["Orgânico (entrada)", "Nível de exploração (como cátion em haleto metálico)",
+            "Índice de oportunidade (0–100)", "Parecer",
             "Busca completa?", "Nome no PubChem", "CID", "Fórmula", "Massa molar",
             "Estruturas de haleto metálico (amostras únicas)", "…no COD", "…no CSD (por nome)",
             "…confirmadas por grafo (CIF)", "…com o orgânico como cátion", "Papel do orgânico",
             "Indícios fracos (inconclusivos)", "Candidatas por fórmula não verificadas",
             "Sais de haleto sem metal (estruturas)", "Entradas do CSD que citam o orgânico (qualquer composto)",
             "Combinações M–X (nº de artigos)", "Dimensionalidades (COD)",
-            "Combinações M–X não encontradas (núcleo)", "Publicações estruturais", "Grupos independentes (aprox.)",
+            "Combinações M–X não encontradas (núcleo)", "Publicações com o orgânico como cátion",
+            "Grupos independentes (como cátion)", "Publicações só como ligante/neutro",
+            "Publicações estruturais (total)", "Grupos independentes (total, aprox.)",
             "Citações somadas (estruturais)", "Primeiro ano", "Último ano", "Artigos: aditivo/passivação",
             "Artigos: ambíguos", "Artigos: menções", "Artigos não verificáveis", "Depósitos CSD ligados (DataCite)",
             "Sítios protonáveis", "Tipos de N", "Grupos ácidos", "Doadores lig. H", "Aceptores lig. H",
@@ -60,6 +61,7 @@ def table_summary(results):
             s["n_estruturas_hibridas_possiveis"], s["n_candidatas_nao_verificadas"],
             s["n_sais_haleto_sem_metal"], s["n_csd_qualquer_composto"] if s["n_csd_qualquer_composto"] is not None else "",
             _j(s["combinacoes_MX"]), _j(s["dimensionalidades"]), _j(s["lacunas_MX"]),
+            s["n_publicacoes_como_cation"], s["n_grupos_como_cation"], s["n_publicacoes_so_ligante_ou_neutro"],
             s["n_publicacoes_estruturais"], s["n_grupos_independentes"], s["citacoes_estruturais"],
             s["primeiro_ano"] or "", s["ultimo_ano"] or "", s["n_artigos_aditivo"], s["n_artigos_ambiguos"],
             s["n_mencoes"], s["n_nao_verificaveis"], s["n_depositos_csd_ligados"],
@@ -238,7 +240,7 @@ def _write_xlsx(tables, path: Path):
 
     wb = Workbook()
     wb.remove(wb.active)
-    fills = {"INEXPLORADO": "C6EFCE", "SEM USO": "DDEBF7", "INDÍCIOS": "FFF2CC", "POUCO": "FFE699",
+    fills = {"INEXPLORADO": "C6EFCE", "SEM USO": "DDEBF7", "USADO SÓ": "E2EFDA", "INDÍCIOS": "FFF2CC", "POUCO": "FFE699",
              "MODERADAMENTE": "F8CBAD", "BEM": "D9D9D9"}
     for name, (head, rows) in tables.items():
         ws = wb.create_sheet(name[:31])
@@ -297,7 +299,7 @@ h3{font-size:1rem;margin:1.2em 0 .4em}.muted{color:var(--muted)}a{color:var(--ac
 table{border-collapse:collapse;width:100%;font-size:.88rem}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
 th{font-weight:600;white-space:nowrap}.scroll{overflow-x:auto}.num{text-align:right;font-variant-numeric:tabular-nums}
 .tag{display:inline-block;padding:1px 8px;border-radius:10px;border:1px solid currentColor;font-size:.78rem;font-weight:600;white-space:nowrap}
-.INEXPLORADO{color:var(--g)}.SEM{color:var(--b)}.INDICIOS{color:var(--y)}.POUCO{color:var(--y)}.MODERADAMENTE{color:var(--o)}.BEM{color:var(--gr)}
+.INEXPLORADO{color:var(--g)}.SEM{color:var(--b)}.USADO{color:var(--g)}.INDICIOS{color:var(--y)}.POUCO{color:var(--y)}.MODERADAMENTE{color:var(--o)}.BEM{color:var(--gr)}
 details{background:var(--card);border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:0 14px}
 details[open]{padding-bottom:12px}summary{cursor:pointer;padding:10px 0;font-weight:600}
 .warn{color:var(--o);font-weight:600}.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;font-size:.9rem}
@@ -337,8 +339,8 @@ def render_html(results, cfg, total=None) -> str:
                      "Não trate esses como inexplorados antes de rodar novamente.</p>")
     parts.append("<h2>Resumo (ordenado pelo índice de oportunidade)</h2><div class='scroll'><table><tr>"
                  "<th>Orgânico</th><th>Fórmula</th><th>Nível de exploração</th><th class='num'>Índice</th>"
-                 "<th class='num'>Estruturas</th><th class='num'>como cátion</th><th class='num'>Publ. estruturais</th>"
-                 "<th class='num'>Grupos</th><th class='num'>Aditivo</th><th>M–X (nº de artigos)</th>"
+                 "<th class='num'>Estruturas</th><th class='num'>Publ. como cátion</th><th class='num'>Grupos</th>"
+                 "<th class='num'>Publ. estruturais (total)</th><th class='num'>Aditivo</th><th>M–X (nº de artigos)</th>"
                  "<th class='num'>Sítios básicos</th></tr>")
     for n, r in enumerate(ordered):
         o, s = r.get("organico") or {}, r["resumo"]
@@ -347,11 +349,12 @@ def render_html(results, cfg, total=None) -> str:
             f"<td>{_e(o.get('formula_hill', ''))}</td><td>{_tag(s['nivel_exploracao'])}</td>"
             f"<td class='num'>{s['indice_oportunidade']}</td><td class='num'>{s['n_estruturas_hibridas_fortes']}"
             f"{'+' + str(s['n_estruturas_hibridas_possiveis']) + '?' if s['n_estruturas_hibridas_possiveis'] else ''}</td>"
-            f"<td class='num'>{s['n_como_cation']}</td>"
-            f"<td class='num'>{s['n_publicacoes_estruturais']}</td><td class='num'>{s['n_grupos_independentes']}</td>"
+            f"<td class='num'>{s['n_publicacoes_como_cation']}</td><td class='num'>{s['n_grupos_como_cation']}</td>"
+            f"<td class='num'>{s['n_publicacoes_estruturais']}</td>"
             f"<td class='num'>{s['n_artigos_aditivo']}</td><td>{_e(_j(s['combinacoes_MX']))}</td>"
             f"<td class='num'>{_e(o.get('n_sitios_protonaveis', ''))}</td></tr>")
-    parts.append("</table></div><p class='small muted'>Estruturas: amostras únicas de haleto metálico com o orgânico, COD + CSD "
+    parts.append("</table></div><p class='small muted'>O nível considera o orgânico como <b>cátion</b> na rede; "
+                 "Estruturas = amostras únicas de haleto metálico com o orgânico em qualquer papel, COD + CSD "
                  "(+N? = indícios inconclusivos). "
                  "Todos os detalhes e colunas adicionais estão em <b>resultados.xlsx</b>.</p><h2>Detalhes por orgânico</h2>")
     for n, r in enumerate(ordered):

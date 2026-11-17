@@ -1,8 +1,6 @@
 """Pipeline completo com um servidor falso (dados SINTÉTICOS): resultado, checkpoints e retomada."""
 import json
 
-import pytest
-
 from helpers import FakeHttp, hybrid_cif
 from perovskite_explorer import literature, pipeline, scoring
 from perovskite_explorer import structures as st

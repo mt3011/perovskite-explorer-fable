@@ -328,7 +328,8 @@ def _analyze(cif_text, query):
         elif same_formula:
             organic = {"status": "isomero",
                        "motivo": "há molécula com a mesma fórmula, mas conectividade diferente (isômero)"}
-        elif any(dis[i] for _, _, _, members in organic_graphs for i in members if els[i] != "H"):
+        elif any(_could_be_target(hf, qf) for _, hf, _, members in organic_graphs
+                 if any(dis[i] for i in members if els[i] != "H")):
             # só a desordem na PARTE ORGÂNICA impede a conclusão (desordem em ânions/água não)
             organic = {"status": "inconclusivo",
                        "motivo": "parte orgânica desordenada; o grafo não pôde ser reconstruído"}
@@ -402,6 +403,19 @@ def _analyze(cif_text, query):
     }
     result["classificacao"] = classify(result)
     return result
+
+
+def _could_be_target(comp: dict, query: dict) -> bool:
+    """Um fragmento desordenado pode ser o orgânico procurado mal resolvido?
+
+    Sim, se tem só elementos do orgânico e quantidades próximas (cerca de 60% a 160% de cada
+    elemento). Solventes pequenos ou ligantes bem maiores, mesmo desordenados, não impedem a
+    conclusão de que o orgânico está ausente.
+    """
+    if any(e not in query for e in comp):
+        return False
+    return all(int(0.6 * n) <= comp.get(e, 0) <= 1.6 * n + 1 for e, n in query.items()) \
+        and sum(comp.values()) >= 0.6 * sum(query.values())
 
 
 def classify(r: dict) -> str:

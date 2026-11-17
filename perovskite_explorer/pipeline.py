@@ -110,7 +110,7 @@ def process_organic(http, name: str, cfg: dict) -> dict:
     if cfg["usar_cod"]:
         try:
             entries, rep = cod.search(http, org, terms, cfg["metais"], cfg["halogenios"])
-            cands = structures.prefilter(entries, org, terms)
+            cands = structures.prefilter(entries, org, terms, cfg["metais"], cfg["halogenios"])
             cands, stats = structures.verify(cands, org, lambda i: cod.fetch_cif(http, i), cfg["max_cifs"])
             add_stats(stats)
             all_structs += cands
@@ -124,7 +124,7 @@ def process_organic(http, name: str, cfg: dict) -> dict:
         if org.get("heavy_elements"):
             try:
                 entries, cifs = csd.search(org)
-                cands = structures.prefilter(entries, org, terms)
+                cands = structures.prefilter(entries, org, terms, cfg["metais"], cfg["halogenios"])
                 cands, stats = structures.verify(cands, org, cifs.get, max_cifs=10 ** 6, max_salts=10 ** 6)
                 add_stats(stats)
                 all_structs += cands

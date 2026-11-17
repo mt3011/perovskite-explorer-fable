@@ -9,10 +9,11 @@ from . import structures as st
 INEXPLORADO = "INEXPLORADO"
 SEM_USO = "SEM USO ESTRUTURAL CONHECIDO"
 INDICIOS = "INDÍCIOS NÃO CONFIRMADOS"
+LIGANTE = "USADO SÓ COMO LIGANTE OU NEUTRO"
 POUCO = "POUCO EXPLORADO"
 MODERADO = "MODERADAMENTE EXPLORADO"
 ESTABELECIDO = "BEM ESTABELECIDO"
-NOVELTY = {INEXPLORADO: 100, SEM_USO: 90, INDICIOS: 75, POUCO: 65, MODERADO: 35, ESTABELECIDO: 10}
+NOVELTY = {INEXPLORADO: 100, SEM_USO: 90, LIGANTE: 80, INDICIOS: 75, POUCO: 65, MODERADO: 35, ESTABELECIDO: 10}
 HYBRID = st.HYBRID
 SALT = st.SALT
 CORE_METALS = ["Pb", "Sn", "Bi", "Sb", "Cu", "Ag"]
@@ -62,16 +63,33 @@ def summarize(res: dict) -> dict:
     cites = [p["citacoes"] for p in structural if p.get("citacoes") is not None]
     years = [p["ano"] for p in structural if p.get("ano")] + [s["ano"] for s in strong if s.get("ano")]
 
-    if n_pubs == 0:
-        if weak or ambiguous:
+    # --- separação por papel: para perovskitas interessa o orgânico como CÁTION na rede ---
+    # Papel indeterminado conta como cátion (lado conservador: não inflar a "novidade").
+    def cationic(x):
+        r = x.get("papel_do_organico") or st.UNKNOWN
+        return r.startswith("cátion") or r == st.UNKNOWN
+
+    cation_keys = {x.get("doi") or f"{x['fonte']}:{x['id']}" for x in strong if cationic(x)}
+    # artigos estruturais sem estrutura localizada nos bancos também contam como uso catiônico
+    lit_only = [p for p in structural if not p.get("estruturas_ligadas")]
+    cation_keys |= {p.get("doi") or p.get("titulo") for p in lit_only}
+    cation_papers = [p for p in structural if (p.get("doi") in cation_keys) or not p.get("estruturas_ligadas")]
+    n_cat = len(cation_keys)
+    groups_cat = lit.independent_groups(cation_papers) or (1 if n_cat else 0)
+    n_lig = len({x.get("doi") or f"{x['fonte']}:{x['id']}" for x in strong if not cationic(x)} - cation_keys)
+
+    if n_cat == 0:
+        if n_pubs > 0:
+            level = LIGANTE
+        elif weak or ambiguous:
             level = INDICIOS
         elif additive or mentions:
             level = SEM_USO
         else:
             level = INEXPLORADO
-    elif n_pubs <= 2 or groups <= 1:
+    elif n_cat <= 2 or groups_cat <= 1:
         level = POUCO
-    elif n_pubs <= 9:
+    elif n_cat <= 9:
         level = MODERADO
     else:
         level = ESTABELECIDO
@@ -119,6 +137,9 @@ def summarize(res: dict) -> dict:
         "combinacoes_MX": dict(combos.most_common()),
         "dimensionalidades": dict(dims),
         "lacunas_MX": gaps if (strong or structural) else [],
+        "n_publicacoes_como_cation": n_cat,
+        "n_grupos_como_cation": groups_cat,
+        "n_publicacoes_so_ligante_ou_neutro": n_lig,
         "n_publicacoes_estruturais": n_pubs,
         "n_grupos_independentes": groups,
         "citacoes_estruturais": sum(cites) if cites else 0,
@@ -149,18 +170,25 @@ def _verdict(s: dict, org: dict) -> str:
                      f"compatível, {s['n_artigos_ambiguos']} artigos ambíguos): verificar manualmente antes de "
                      "considerar inédito.")
     else:
-        parts.append(f"Já usado estruturalmente: {s['n_publicacoes_estruturais']} publicação(ões) de "
-                     f"~{s['n_grupos_independentes']} grupo(s) independente(s), "
-                     f"{s['n_estruturas_hibridas_fortes']} estrutura(s) de haleto metálico"
+        if lv == LIGANTE:
+            parts.append("Já cristalizado com haletos metálicos, mas apenas como ligante coordenado ou molécula "
+                         "neutra — nenhum caso como cátion na rede (o papel usual em perovskitas híbridas).")
+        else:
+            parts.append(f"Como cátion em haleto metálico: {s['n_publicacoes_como_cation']} publicação(ões) de "
+                         f"~{s['n_grupos_como_cation']} grupo(s) independente(s).")
+        parts.append(f"Uso estrutural total: {s['n_publicacoes_estruturais']} publicação(ões) de "
+                     f"~{s['n_grupos_independentes']} grupo(s), {s['n_estruturas_hibridas_fortes']} estrutura(s)"
                      + (f", {s['primeiro_ano']}–{s['ultimo_ano']}" if s["primeiro_ano"] else "") + ".")
         if s["papeis_do_organico"]:
             parts.append("Papel do orgânico nas entradas: " + ", ".join(f"{k} ({v})" for k, v in s["papeis_do_organico"].items()) + ".")
         if s["combinacoes_MX"]:
             parts.append("Combinações M–X (nº de artigos): " + ", ".join(f"{k} ({v})" for k, v in s["combinacoes_MX"].items()) + ".")
         if s["dimensionalidades"]:
-            parts.append("Dimensionalidades: " + ", ".join(f"{k} ({v})" for k, v in sorted(s["dimensionalidades"].items())) + ".")
+            parts.append("Dimensionalidades (COD): " + ", ".join(f"{k} ({v})" for k, v in sorted(s["dimensionalidades"].items())) + ".")
         if lv == POUCO:
             parts.append("Pouco reproduzido: vale reproduzir e explorar variações de metal/haleto.")
+        if s["n_estruturas_hibridas_possiveis"]:
+            parts.append(f"Além disso, {s['n_estruturas_hibridas_possiveis']} indício(s) inconclusivo(s) na aba Estruturas.")
     parts.append("Viabilidade: " + s["viabilidade"] + ".")
     if s["n_sais_haleto_sem_metal"]:
         parts.append(f"{s['n_sais_haleto_sem_metal']} estrutura(s) do sal de haleto sem metal (precursor caracterizado).")

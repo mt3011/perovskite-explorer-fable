@@ -36,18 +36,22 @@ NEUTRAL = "neutro (co-cristal/solvato) ou H não localizado"
 UNKNOWN = "indeterminado"
 
 
-def _category(formula: dict, organic_formula: dict, k: int) -> str:
-    metals = [e for e in formula if e in METALS and e not in A_SITE_METALS]
-    free_x = [e for e in formula if e in HALOGENS
+def _category(formula: dict, organic_formula: dict, k: int, metals=None, halogens=None) -> str:
+    """Classe da entrada. Só contam metais da lista-alvo e haletos pedidos (quando informados)."""
+    present = [e for e in formula if e in METALS and e not in A_SITE_METALS]
+    target = [e for e in present if metals is None or e in metals]
+    free_x = [e for e in formula if e in HALOGENS and (halogens is None or e in halogens)
               and formula[e] - k * organic_formula.get(e, 0) > 0.2]
-    if metals and free_x:
+    if not free_x:
+        return "outro"
+    if target:
         return HYBRID
-    if free_x:
-        return SALT
-    return "outro"
+    if present:
+        return "outro"      # só metais fora da lista-alvo (use --metais / --metais-extras)
+    return SALT
 
 
-def prefilter(entries: list, organic: dict, terms: dict) -> list:
+def prefilter(entries: list, organic: dict, terms: dict, metals=None, halogens=None) -> list:
     """Primeiro filtro (sem baixar CIF). Atribui a cada candidata uma prioridade de verificação:
 
       A  nome do orgânico no nome químico ou no título do artigo
@@ -68,9 +72,9 @@ def prefilter(entries: list, organic: dict, terms: dict) -> list:
         if not named and (not m or m["nivel"] != "exata"):
             continue
         k = m["k"] if m else 0
-        cat = _category(e["formula"], organic.get("formula") or {}, k)
+        cat = _category(e["formula"], organic.get("formula") or {}, k, metals, halogens)
         if cat == "outro":
-            continue  # sem haleto iônico: fora do escopo (ex.: cristal do orgânico puro)
+            continue  # sem haleto iônico ou sem metal-alvo: fora do escopo
         tier = "A" if named else ("B1" if m.get("cationico") else "B2")
         e = dict(e)
         e.update({"casamento_formula": m, "termos_no_nome": hits_name, "termos_no_titulo": hits_title,
