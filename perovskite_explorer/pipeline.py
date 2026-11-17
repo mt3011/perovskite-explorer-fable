@@ -1,0 +1,257 @@
+"""Orquestração: para cada orgânico, consulta as fontes, grava um checkpoint e atualiza os relatórios.
+
+Proteções contra interrupção:
+  * cada resposta HTTP fica no cache SQLite (http.py);
+  * cada orgânico concluído vira um arquivo JSON (escrita atômica) em <saida>/checkpoints;
+  * os relatórios são regravados após cada orgânico (sempre há um resultado parcial utilizável);
+  * falha de uma fonte não interrompe as outras e fica registrada (o orgânico é marcado como
+    "busca incompleta" e refeito na próxima execução).
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import logging
+import os
+import traceback
+from pathlib import Path
+
+from . import __version__, cod, csd, datacite, literature, pubchem, scoring, structures
+from .chem import DEFAULT_HALOGENS, DEFAULT_METALS
+from .http import SourceError
+from .names import build_terms, slugify
+
+log = logging.getLogger("perovskite_explorer")
+
+DEFAULT_CONFIG = {
+    "metais": DEFAULT_METALS,
+    "halogenios": DEFAULT_HALOGENS,
+    "fontes_literatura": ["openalex", "europepmc", "crossref"],
+    "usar_cod": True,
+    "usar_csd": True,          # só tem efeito se a CSD Python API estiver instalada
+    "usar_datacite": True,
+    "max_cifs": 60,            # CIFs verificados por orgânico e por banco
+    "max_paginas": 2,          # páginas de 100 resultados por fonte de literatura
+    "max_doi_datacite": 25,
+    "email": None,
+    "openalex_api_key": None,
+    "semanticscholar_api_key": None,
+}
+
+
+def read_list(path) -> list:
+    """Lê a lista de orgânicos (um por linha; '#' inicia comentário; duplicatas são removidas)."""
+    names, seen = [], set()
+    text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip().strip(";,")
+        if line and line.lower() not in seen:
+            seen.add(line.lower())
+            names.append(line)
+    return names
+
+
+def atomic_write_json(path: Path, obj) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=1, default=_default)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+
+
+def _default(o):
+    if isinstance(o, (set, frozenset)):
+        return sorted(o)
+    if hasattr(o, "item"):
+        return o.item()
+    return str(o)
+
+
+def process_organic(http, name: str, cfg: dict) -> dict:
+    res = {"entrada": name, "versao": __version__, "inicio": dt.datetime.now().isoformat(timespec="seconds"),
+           "fontes": {}, "estruturas": [], "descartadas": [], "compostos": [], "literatura": [],
+           "depositos_csd": []}
+
+    # 1) identidade química -------------------------------------------------
+    try:
+        org = pubchem.resolve(http, name)
+        res["fontes"]["PubChem"] = {"ok": True, "detalhe": org.get("metodo_resolucao", "")}
+    except (SourceError, KeyError, IndexError, TypeError) as exc:
+        org = {"entrada": name, "resolvido": False, "avisos": [f"PubChem falhou: {exc}"]}
+        res["fontes"]["PubChem"] = {"ok": False, "erro": str(exc)}
+    res["organico"] = org
+    rel = org.get("formas_relacionadas") or {}
+    terms = build_terms(name, org.get("titulo", ""), org.get("nome_iupac", ""), org.get("sinonimos"),
+                        extra_cations=rel.get("cations"))
+    res["termos"] = terms
+
+    # 2) bancos cristalográficos -------------------------------------------
+    all_structs = []
+    if cfg["usar_cod"]:
+        try:
+            entries, rep = cod.search(http, org, terms, cfg["metais"], cfg["halogenios"])
+            cands = structures.prefilter(entries, org, terms)
+            structures.verify(cands, org, lambda i: cod.fetch_cif(http, i), cfg["max_cifs"])
+            all_structs += cands
+            res["fontes"]["COD"] = {"ok": True, "consultas": rep["consultas"],
+                                    "entradas_examinadas": len(entries), "candidatas": len(cands),
+                                    "falhas_parciais": rep["falhas"][:5]}
+        except SourceError as exc:
+            res["fontes"]["COD"] = {"ok": False, "erro": str(exc)}
+    if cfg["usar_csd"] and csd.available():
+        if org.get("heavy_elements"):
+            try:
+                entries, cifs = csd.search(org)
+                cands = structures.prefilter(entries, org, terms)
+                structures.verify(cands, org, cifs.get, max_cifs=10 ** 6)
+                all_structs += cands
+                res["fontes"]["CSD"] = {"ok": True, "entradas_examinadas": len(entries), "candidatas": len(cands)}
+            except Exception as exc:  # noqa: BLE001 - conector ainda não validado com licença real
+                res["fontes"]["CSD"] = {"ok": False, "erro": f"{type(exc).__name__}: {exc}"}
+    for s in all_structs:
+        (res["descartadas"] if s["confianca"] == structures.DESCARTADA else res["estruturas"]).append(s)
+    res["estruturas"].sort(key=lambda s: (s["categoria"] != scoring.HYBRID, structures.ORDER[s["confianca"]],
+                                          -(s.get("ano") or 0)))
+    res["compostos"] = structures.group_compounds(res["estruturas"])
+
+    # 3) literatura ----------------------------------------------------------
+    papers, rep = literature.run(http, terms, cfg, cfg["fontes_literatura"])
+    for label, info in rep.items():
+        res["fontes"][label] = info if isinstance(info, dict) else {"ok": True, "detalhe": str(info)}
+
+    # artigos das estruturas encontradas entram na lista (com metadados do Crossref)
+    by_doi = {p["doi"]: p for p in papers if p.get("doi")}
+    doi_structs: dict = {}
+    for s in res["estruturas"]:
+        if s.get("doi") and s["confianca"] in (structures.CONFIRMADA, structures.PROVAVEL):
+            doi_structs.setdefault(s["doi"], []).append(f"{s['fonte']}:{s['id']}")
+    lookup_fail = 0
+    for doi, ids in doi_structs.items():
+        p = by_doi.get(doi)
+        if p is None:
+            try:
+                p = literature.crossref_lookup(http, doi, cfg)
+            except SourceError as exc:
+                lookup_fail += 1
+                log.warning("Crossref (DOI %s): %s", doi, exc)
+                p = None
+            if p is None:
+                s0 = next(s for s in res["estruturas"] if s.get("doi") == doi)
+                p = {"doi": doi, "titulo": s0.get("titulo", ""), "resumo": "", "ano": s0.get("ano"),
+                     "revista": s0.get("revista", ""), "autores": [a.strip() for a in s0.get("autores", "").split(";") if a.strip()],
+                     "citacoes": None, "tipo": "article", "retratado": False, "fontes": [s0["fonte"]],
+                     "url": f"https://doi.org/{doi}"}
+            p = literature.classify(p, terms)
+            papers.append(p)
+            by_doi[doi] = p
+        p["estruturas_ligadas"] = ids
+        p["relevante"] = True
+        if p["uso"] != literature.ESTRUTURAL:
+            p["uso_pelo_texto"] = p["uso"]
+            p["uso"] = literature.ESTRUTURAL
+            p.setdefault("pistas_estruturais", []).append("estrutura cristalina depositada com este DOI")
+    if lookup_fail:
+        res["fontes"].setdefault("Crossref", {"ok": True})["falhas_parciais"] = [f"{lookup_fail} DOI(s) sem metadados"]
+
+    # 4) depósitos CSD ligados aos artigos estruturais (via DataCite) ---------
+    if cfg["usar_datacite"]:
+        targets = [p for p in papers if p.get("doi") and p.get("relevante")
+                   and (p["uso"] == literature.ESTRUTURAL)]
+        targets.sort(key=lambda p: (not p.get("estruturas_ligadas"), -(p.get("citacoes") or 0)))
+        n_fail, err = 0, ""
+        for p in targets[: cfg["max_doi_datacite"]]:
+            try:
+                deps = datacite.depositions_for_doi(http, p["doi"])
+            except SourceError as exc:
+                n_fail += 1
+                err = str(exc)
+                if n_fail >= 3:
+                    break
+                continue
+            p["depositos_csd"] = [d["ccdc"] for d in deps if d.get("ccdc")]
+            res["depositos_csd"] += deps
+        if targets:
+            ok = n_fail == 0
+            res["fontes"]["DataCite (depósitos CCDC)"] = {"ok": ok, "artigos_consultados": min(len(targets), cfg["max_doi_datacite"])}
+            if not ok:
+                res["fontes"]["DataCite (depósitos CCDC)"]["erro"] = err
+
+    order = {literature.ESTRUTURAL: 0, literature.AMBIGUO: 1, literature.ADITIVO: 2, literature.MENCAO: 3,
+             literature.NAO_VERIFICAVEL: 4}
+    papers.sort(key=lambda p: (order.get(p.get("uso"), 9), -(p.get("citacoes") or 0)))
+    res["literatura"] = papers
+    res["resumo"] = scoring.summarize(res)
+    res["completo"] = res["resumo"]["busca_completa"]
+    res["fim"] = dt.datetime.now().isoformat(timespec="seconds")
+    return res
+
+
+def load_results(out_dir: Path, names: list | None = None) -> list:
+    """Carrega os checkpoints existentes (na ordem da lista, se fornecida)."""
+    ck = Path(out_dir) / "checkpoints"
+    found = {}
+    for f in sorted(ck.glob("*.json")):
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+            found[r["entrada"].lower()] = r
+        except (ValueError, KeyError):
+            log.warning("checkpoint ilegível ignorado: %s", f.name)
+    if names is None:
+        return list(found.values())
+    return [found[n.lower()] for n in names if n.lower() in found]
+
+
+def run(names: list, out_dir, http, cfg: dict, redo: bool = False, retry_incomplete: bool = True,
+        on_progress=None) -> list:
+    from . import report
+
+    out_dir = Path(out_dir)
+    ck = out_dir / "checkpoints"
+    ck.mkdir(parents=True, exist_ok=True)
+    state_file = out_dir / "estado.json"
+    total = len(names)
+    interrupted = False
+    for i, name in enumerate(names, 1):
+        path = ck / f"{slugify(name)}.json"
+        if path.exists() and not redo:
+            try:
+                prev = json.loads(path.read_text(encoding="utf-8"))
+                if prev.get("completo") or not retry_incomplete:
+                    log.info("[%d/%d] %s — já concluído (checkpoint), pulando", i, total, name)
+                    continue
+                log.info("[%d/%d] %s — checkpoint incompleto, refazendo fontes que falharam", i, total, name)
+            except ValueError:
+                log.warning("[%d/%d] %s — checkpoint corrompido, refazendo", i, total, name)
+        else:
+            log.info("[%d/%d] %s — iniciando", i, total, name)
+        atomic_write_json(state_file, {"total": total, "posicao": i, "atual": name,
+                                       "atualizado": dt.datetime.now().isoformat(timespec="seconds")})
+        try:
+            res = process_organic(http, name, cfg)
+        except KeyboardInterrupt:
+            interrupted = True
+            log.warning("Interrompido pelo usuário. Rode o mesmo comando para continuar de onde parou.")
+            break
+        except Exception as exc:  # noqa: BLE001 - um orgânico problemático não derruba a lista inteira
+            log.error("[%d/%d] %s — erro interno: %s\n%s", i, total, name, exc, traceback.format_exc())
+            res = {"entrada": name, "versao": __version__, "completo": False, "erro_interno": f"{type(exc).__name__}: {exc}",
+                   "organico": {"entrada": name, "resolvido": False, "avisos": []}, "termos": {},
+                   "fontes": {"programa": {"ok": False, "erro": str(exc)}}, "estruturas": [], "descartadas": [],
+                   "compostos": [], "literatura": [], "depositos_csd": []}
+            res["resumo"] = scoring.summarize(res)
+        atomic_write_json(path, res)
+        s = res["resumo"]
+        log.info("[%d/%d] %s — %s (índice %s)%s", i, total, name, s["nivel_exploracao"], s["indice_oportunidade"],
+                 "" if s["busca_completa"] else " — BUSCA INCOMPLETA")
+        try:
+            report.write_all(load_results(out_dir, names), out_dir, cfg, total=total)
+        except Exception as exc:  # noqa: BLE001 - relatório parcial é conveniência; o checkpoint já está salvo
+            log.warning("não foi possível atualizar os relatórios parciais: %s", exc)
+        if on_progress:
+            on_progress(i, total, res)
+    results = load_results(out_dir, names)
+    report.write_all(results, out_dir, cfg, total=total)
+    atomic_write_json(state_file, {"total": total, "concluidos": len(results), "interrompido": interrupted,
+                                   "atualizado": dt.datetime.now().isoformat(timespec="seconds")})
+    return results
