@@ -97,16 +97,22 @@ depósitos repetidos), **Estruturas** (uma linha por entrada cristalográfica), 
 linha por artigo, com as pistas que levaram à classificação), **Depósitos CSD por artigo**,
 **Descartadas** (o que foi rejeitado e por quê), **Fontes** (o que funcionou) e **Parâmetros**.
 
-**Nível de exploração** (coluna principal do Resumo):
+**Nível de exploração** (coluna principal do Resumo). Ele mede o uso do orgânico **como cátion na
+rede de um haleto metálico**, que é o papel usual em perovskitas híbridas:
 
 | Nível | Significado |
 |---|---|
 | INEXPLORADO | nenhuma estrutura e nenhum artigo em contexto de haleto metálico |
 | SEM USO ESTRUTURAL CONHECIDO | só aparece como aditivo/passivante ou menção |
+| USADO SÓ COMO LIGANTE OU NEUTRO | já cristalizou com haletos metálicos, mas sempre coordenado ao metal ou como molécula neutra — nunca como cátion |
 | INDÍCIOS NÃO CONFIRMADOS | há evidência fraca (ver seção 5) — confira manualmente antes de considerar inédito |
-| POUCO EXPLORADO | 1–2 publicações estruturais, ou um único grupo de pesquisa |
-| MODERADAMENTE EXPLORADO | 3–9 publicações estruturais |
+| POUCO EXPLORADO | 1–2 publicações como cátion, ou um único grupo de pesquisa |
+| MODERADAMENTE EXPLORADO | 3–9 publicações como cátion |
 | BEM ESTABELECIDO | 10 ou mais |
+
+O total de publicações estruturais em qualquer papel aparece em colunas separadas. Exemplo real: a
+nicotinamida tem dezenas de estruturas com haletos metálicos, quase todas como ligante coordenado;
+como cátion (3-carbamoilpiridínio) são poucas.
 
 ---
 
@@ -184,7 +190,12 @@ for atingido, o relatório informa quantas candidatas ficaram **pendentes**.
 
 Cada estrutura também recebe o **papel do orgânico**: *cátion* (H a mais que a molécula neutra, ou
 nome em `-ium`), *ligante coordenado ao metal* (ligação M–N/O/S medida no CIF) ou *neutro*
-(co-cristal/solvato). Para perovskitas, o caso de interesse é o de cátion.
+(co-cristal/solvato). É o papel de cátion que define o nível de exploração; quando o papel não pôde
+ser determinado, a estrutura conta como cátion (lado conservador: não infla a novidade).
+
+Só entram estruturas com **metal da lista-alvo e haleto pedido** (`--metais`, `--halogenios`);
+compostos apenas com outros metais (lantanídeos, Co, Ni…) ficam de fora, a menos que você amplie a
+lista.
 
 ## 6. Como a arquitetura estrutural é determinada (a partir do CIF)
 
@@ -224,8 +235,9 @@ Todas as pistas e o trecho do resumo ficam na aba Literatura para conferência.
 
 - **Amostras únicas**: estruturas do mesmo artigo com os mesmos metais e haletos costumam estar
   nos dois bancos; para cada (artigo, M, X) conta-se o maior dos dois totais (COD ou CSD).
-- **Publicações estruturais**: DOIs distintos entre artigos classificados como estruturais e
-  artigos de estruturas confirmadas.
+- **Publicações como cátion**: DOIs distintos de estruturas em que o orgânico é cátion, mais os
+  artigos classificados como estruturais cuja estrutura não foi localizada nos bancos.
+- **Publicações estruturais (total)**: o mesmo, incluindo ligante coordenado e forma neutra.
 - **Grupos independentes** (aproximado): artigos ligados por coautoria (2 ou mais autores em
   comum) contam como um grupo. Um composto com 5 artigos do mesmo grupo foi pouco reproduzido.
 - **Combinações M–X** e **lacunas**: quais pares metal–haleto já têm estrutura com o orgânico e
@@ -237,9 +249,10 @@ Todas as pistas e o trecho do resumo ficam na aba Literatura para conferência.
 |---|---|---|---|
 | INEXPLORADO | 100 | amina alifática ou carga permanente | 1,0 |
 | SEM USO ESTRUTURAL | 90 | N sp2 básico (piridina, imidazol, amidina) | 0,85 |
-| INDÍCIOS | 75 | só base fraca (tipo anilina) | 0,7 |
-| POUCO | 65 | nenhum sítio básico | 0,3 |
-| MODERADO / ESTABELECIDO | 35 / 10 | não resolvido no PubChem | 0,5 |
+| SÓ LIGANTE/NEUTRO | 80 | só base fraca (tipo anilina) | 0,7 |
+| INDÍCIOS | 75 | nenhum sítio básico | 0,3 |
+| POUCO | 65 | não resolvido no PubChem | 0,5 |
+| MODERADO / ESTABELECIDO | 35 / 10 | | |
 
 A classificação dos nitrogênios é por grupo funcional, lida do grafo: amida, sulfonamida, nitrila,
 nitro e N tipo pirrol **não** contam como básicos.

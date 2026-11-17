@@ -62,3 +62,31 @@ def test_molecule_on_special_position_is_completed_by_symmetry():
 def test_bad_cif_never_raises():
     assert analyze_cif("isto não é um CIF")["ok"] is False
     assert analyze_cif("data_x\n_cell_length_a 5\n")["ok"] is False
+
+
+def test_perchlorate_is_not_a_halide():
+    cif = """data_perclorato
+_cell_length_a 10
+_cell_length_b 10
+_cell_length_c 10
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+_symmetry_space_group_name_H-M 'P 1'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Ag1 Ag 0.5 0.5 0.5
+Cl1 Cl 0.1 0.1 0.1
+O1 O 0.244 0.1 0.1
+O2 O 0.052 0.236 0.1
+O3 O 0.052 0.032 0.218
+O4 O 0.052 0.032 -0.018
+Br1 Br 0.5 0.5 0.76
+"""
+    r = analyze_cif(cif)
+    assert r["haletos"] == ["Br"]                  # o Cl do ClO4- não conta; o Br ligado à prata, sim
+    assert "ClO4" in r["componentes"]

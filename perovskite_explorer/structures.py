@@ -125,6 +125,11 @@ def verify(entries: list, organic: dict, get_cif, max_cifs: int = 300, max_salts
         e["analise"] = analysis
         e["verificada"] = check
         e["confianca"], e["motivo_confianca"] = decide(e, analysis, has_graph=query is not None)
+        if analysis.get("ok") and not analysis.get("haletos"):
+            # o halogênio da fórmula não é haleto: perclorato/BF4-, solvente clorado, C–X de outro orgânico
+            e["confianca"] = DESCARTADA
+            e["motivo_confianca"] = ("o halogênio da fórmula não é haleto iônico nem ligante do metal "
+                                     "(oxiânion como perclorato, solvente halogenado ou C–X)")
         e["papel_do_organico"] = role(e, analysis, organic)
         if analysis.get("ok"):
             e["classificacao"] = analysis.get("classificacao")

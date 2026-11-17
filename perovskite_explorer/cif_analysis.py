@@ -271,8 +271,9 @@ def _analyze(cif_text, query):
         nbrs[j].append((i, tuple(-x for x in s), d))
 
     framework_metal = [e in METALS and e not in A_SITE_METALS for e in els]
-    # haleto "inorgânico": halogênio que não está ligado covalentemente a carbono
-    inorganic_x = [e in HALOGENS and not any(els[j] == "C" for j, _, _ in nbrs[i])
+    # haleto de fato (íon ou ligante do metal): halogênio sem ligação covalente a C (orgânico
+    # halogenado, solvente clorado) nem a O/N/B/P/S/Si (perclorato, iodato, BF4-, PF6-...)
+    inorganic_x = [e in HALOGENS and not any(els[j] in ("C", "O", "N", "B", "P", "S", "Si") for j, _, _ in nbrs[i])
                    for i, e in enumerate(els)]
     org_nodes = [i for i, e in enumerate(els)
                  if (e in ORGANIC_ELEMENTS or (e in HALOGENS and not inorganic_x[i]))]
