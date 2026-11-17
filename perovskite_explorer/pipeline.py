@@ -249,6 +249,8 @@ def load_results(out_dir: Path, names: list | None = None) -> list:
             if r.get("schema") != SCHEMA:
                 log.warning("checkpoint de versão antiga ignorado (será refeito pelo comando buscar): %s", f.name)
                 continue
+            # o resumo é sempre recalculado: assim `relatorio` reflete as regras da versão atual
+            r["resumo"] = scoring.summarize(r)
             found[r["entrada"].lower()] = r
         except (ValueError, KeyError):
             log.warning("checkpoint ilegível ignorado: %s", f.name)

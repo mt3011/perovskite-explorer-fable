@@ -51,8 +51,9 @@ python -m perovskite_explorer analisar-cif estrutura.cif --organico "Phenazine"
 `relatorio` regenera os arquivos de saída sem acessar a rede. `analisar-cif` aplica a análise
 estrutural (seção 6) a qualquer CIF seu — por exemplo, um baixado do site do CCDC.
 
-**Tempo**: cerca de 3–8 minutos por orgânico na primeira vez (o COD é consultado para cada par
-metal–haleto). Orgânicos com os mesmos elementos reaproveitam o cache e ficam bem mais rápidos.
+**Tempo**: de 2 a 10 minutos por orgânico na primeira vez (o COD é consultado para cada par
+metal–haleto e centenas de CIFs podem ser verificados). Rodar de novo usa o cache e leva 1–2
+minutos por orgânico.
 
 **OpenAlex (recomendado)**: é a fonte de literatura com maior cobertura, mas exige uma chave de API
 — gratuita, criada em https://openalex.org. Sem chave ele fica **desativado** (aparece como "não
@@ -279,6 +280,35 @@ nitro e N tipo pirrol **não** contam como básicos.
   isolado ativo) podem ficar de fora e reduzir a dimensionalidade aparente.
 - **Escopo**: haletos (Cl, Br, I; F opcional). Pseudo-haletos (SCN, formiato, azida) e
   calcogenetos não são procurados.
+
+## O que foi validado (novembro de 2026)
+
+- **Lista de exemplo, com as fontes reais** (`exemplos/organicos.txt`; saída em
+  `exemplos/resultado_exemplo/`): PubChem, COD, CSD/DataCite, Europe PMC e Crossref responderam para
+  os 6 orgânicos. Primeira execução: cerca de 28 minutos; repetição a partir do cache: 8 minutos
+  (1940 respostas do cache, 25 da rede). Quedas de conexão no meio foram absorvidas pelas repetições.
+
+  | Orgânico | Nível (como cátion) | Estruturas | Publ. como cátion | Publ. estruturais | Aditivo |
+  |---|---|---|---|---|---|
+  | Theobromine | SEM USO ESTRUTURAL CONHECIDO | 0 | 0 | 0 | 2 |
+  | Niacinamide | POUCO EXPLORADO | 35 | 2 | 26 | 3 |
+  | 4-Aminophenyl sulfone | POUCO EXPLORADO | 4 | 2 | 4 | 0 |
+  | Nicotinic acid | MODERADAMENTE EXPLORADO | 33 | 7 | 30 | 0 |
+  | Phenazine | MODERADAMENTE EXPLORADO | 20 | 5 | 9 | 1 |
+  | 3-Aminobenzoic acid | MODERADAMENTE EXPLORADO | 8 | 3 | 5 | 0 |
+
+- **OpenAlex**: testado com a fenazina (200 registros lidos e classificados) até a cota anônima do
+  dia acabar; por isso o resultado de exemplo acima foi gerado **sem** OpenAlex. Com a sua chave a
+  lista de literatura tende a crescer.
+- **Erros que a verificação pegou nos dados reais** (e que motivaram as regras deste guia):
+  1,10-fenantrolina passando por fenazina (mesma fórmula) — barrada pelo grafo; perclorato contado
+  como cloreto — barrado pela checagem de haleto; derivados como `dibenzo[a,c]phenazine` contados
+  como fenazina — barrados pela regra de nome próprio.
+- **Testes automáticos**: 53 testes (`python -m pytest`) cobrem fórmula, nomes, análise de CIF nas
+  estruturas de referência, classificação de literatura, cache, retomada após interrupção e falha
+  de fonte. Os testes de ponta a ponta usam respostas sintéticas, não dados reais.
+- **Não validado**: o conector da API do CSD (próxima seção). O classificador de literatura e o
+  índice de oportunidade são heurísticas: use-os para priorizar a leitura, não como veredito.
 
 ## Quando você tiver a API do CSD
 

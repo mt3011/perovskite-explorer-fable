@@ -97,9 +97,15 @@ def summarize(res: dict) -> dict:
     combos = Counter()
     dims = Counter()
     seen_pairs = set()
+    target = (res.get("config") or {}).get("metais")
+    wanted = (res.get("config") or {}).get("halogenios")
     for s in strong:
         for m in s["metais"]:
+            if target and m not in target:
+                continue          # co-metal fora da lista-alvo (ex.: lantanídeo junto de Hg)
             for x in s["haletos"]:
+                if wanted and x not in wanted:
+                    continue
                 key = (s.get("doi") or s["id"], m, x)
                 if key not in seen_pairs:   # um artigo conta uma vez por par M–X
                     seen_pairs.add(key)
