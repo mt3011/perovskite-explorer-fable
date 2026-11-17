@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     "max_doi_crossref": 80,    # artigos de estruturas cujos metadados/citações são buscados
     "email": None,
     "openalex_api_key": None,
+    "openalex_sem_chave": False,   # True = tenta o OpenAlex mesmo sem chave (cota anônima, instável)
     "semanticscholar_api_key": None,
 }
 
@@ -74,7 +75,9 @@ def _default(o):
 def config_signature(cfg: dict) -> dict:
     """Parâmetros que mudam o resultado: se diferirem do checkpoint, o orgânico é refeito."""
     keys = ("metais", "halogenios", "fontes_literatura", "usar_cod", "usar_csd", "usar_datacite", "max_cifs")
-    return {k: cfg.get(k) for k in keys}
+    sig = {k: cfg.get(k) for k in keys}
+    sig["openalex_ativo"] = bool(cfg.get("openalex_api_key") or cfg.get("openalex_sem_chave"))
+    return sig
 
 
 def process_organic(http, name: str, cfg: dict) -> dict:
@@ -151,7 +154,14 @@ def process_organic(http, name: str, cfg: dict) -> dict:
     res["compostos"] = structures.group_compounds(res["estruturas"])
 
     # 3) literatura ----------------------------------------------------------
-    papers, rep = literature.run(http, terms, cfg, cfg["fontes_literatura"])
+    sources = list(cfg["fontes_literatura"])
+    if "openalex" in sources and not cfg.get("openalex_api_key") and not cfg.get("openalex_sem_chave"):
+        # sem chave, a cota anônima do OpenAlex é compartilhada por IP e acaba sem aviso: resultados
+        # variariam de um dia para o outro. Preferimos não usar a fonte e dizer isso no relatório.
+        sources.remove("openalex")
+        res["fontes"]["OpenAlex"] = {"ok": True, "desativada": "sem chave de API (gratuita): defina "
+                                     "OPENALEX_API_KEY para ativar, ou use --openalex-sem-chave"}
+    papers, rep = literature.run(http, terms, cfg, sources)
     for label, info in rep.items():
         res["fontes"][label] = info if isinstance(info, dict) else {"ok": True, "detalhe": str(info)}
 

@@ -170,7 +170,7 @@ def table_sources(results):
     for r in results:
         for k, v in (r.get("fontes") or {}).items():
             det = "; ".join(f"{a}={_j(b) if not isinstance(b, (int, float, str)) else b}" for a, b in v.items() if a != "ok")
-            rows.append([_name(r), k, _yn(v.get("ok")), det])
+            rows.append([_name(r), k, "não usada" if v.get("desativada") else _yn(v.get("ok")), det])
     return head, rows
 
 
@@ -371,7 +371,9 @@ def _organic_block(n, r) -> str:
           ("Grupos ácidos", _e(_j(sorted(set(o.get("grupos_acidos", [])))) or "nenhum")),
           ("Termos buscados", _e("; ".join((r.get("termos") or {}).get("cations", []) + (r.get("termos") or {}).get("neutros", [])))),
           ("Lacunas M–X", _e(_j(s["lacunas_MX"]) or "—")),
-          ("Fontes", " · ".join(f"{_e(k)}: {'ok' if v.get('ok') else '<span class=warn>falhou</span>'}" for k, v in (r.get("fontes") or {}).items()))]
+          ("Fontes", " · ".join(f"{_e(k)}: " + ("não usada" if v.get("desativada") else "ok" if v.get("ok")
+                                                  else "<span class=warn>falhou</span>")
+                                for k, v in (r.get("fontes") or {}).items()))]
     p += [f"<dt>{k}</dt><dd>{v}</dd>" for k, v in kv]
     p.append("</dl>")
     for w in o.get("avisos", []):

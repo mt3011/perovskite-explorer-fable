@@ -34,6 +34,7 @@ Opções mais úteis de `buscar`:
 | `--halogenios Cl,Br,I,F` | padrão: Cl, Br, I |
 | `--max-cifs 1000` | verifica mais CIFs quando há muitas candidatas só por fórmula (padrão: 300) |
 | `--fontes europepmc,crossref` | escolhe as fontes de literatura (padrão: openalex, europepmc, crossref) |
+| `--openalex-sem-chave` | tenta o OpenAlex com a cota anônima (pequena e compartilhada por IP; pode falhar) |
 | `--offline` | usa só o que já está no cache (sem rede) |
 | `--refazer` / `--atualizar` | ignora checkpoints / ignora o cache |
 
@@ -53,9 +54,17 @@ estrutural (seção 6) a qualquer CIF seu — por exemplo, um baixado do site do
 **Tempo**: cerca de 3–8 minutos por orgânico na primeira vez (o COD é consultado para cada par
 metal–haleto). Orgânicos com os mesmos elementos reaproveitam o cache e ficam bem mais rápidos.
 
-**OpenAlex**: sem chave, o OpenAlex dá uma cota diária pequena, compartilhada por endereço IP. Se
-ela acabar, a fonte é marcada como falha. A chave é gratuita (https://openalex.org); informe-a
-na variável de ambiente `OPENALEX_API_KEY`, ou rode com `--fontes europepmc,crossref`.
+**OpenAlex (recomendado)**: é a fonte de literatura com maior cobertura, mas exige uma chave de API
+— gratuita, criada em https://openalex.org. Sem chave ele fica **desativado** (aparece como "não
+usada" na aba Fontes) e a literatura vem só do Europe PMC e do Crossref. Para ativar, defina a
+variável de ambiente antes de rodar:
+
+```bash
+export OPENALEX_API_KEY="sua_chave"
+```
+
+No Windows (PowerShell): `$env:OPENALEX_API_KEY="sua_chave"`. Também é possível gravar a chave em
+um arquivo `config_local.json` (`{"openalex_api_key": "sua_chave"}`), que o git ignora.
 
 ## 2. Se a execução for interrompida
 

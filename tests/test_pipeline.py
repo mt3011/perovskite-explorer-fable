@@ -76,7 +76,7 @@ ROUTES = [
     ("api.openalex.org", {"results": []}),
     ("api.crossref.org", {"message": {"items": []}}),
 ]
-CFG = dict(pipeline.DEFAULT_CONFIG, metais=["Pb", "Sn"], halogenios=["I"])
+CFG = dict(pipeline.DEFAULT_CONFIG, metais=["Pb", "Sn"], halogenios=["I"], openalex_api_key="chave-de-teste")
 
 
 def test_end_to_end_result(tmp_path):
@@ -180,3 +180,10 @@ def test_read_list_ignores_comments_and_duplicates(tmp_path):
     f = tmp_path / "l.txt"
     f.write_text("# comentário\nPhenazine\n\nphenazine\nNiacinamide  # nota\n", encoding="utf-8")
     assert pipeline.read_list(f) == ["Phenazine", "Niacinamide"]
+
+
+def test_openalex_without_key_is_skipped_not_failed(tmp_path):
+    http = FakeHttp(ROUTES)
+    res = pipeline.run(["Nicotinic acid"], tmp_path, http, dict(CFG, openalex_api_key=None))[0]
+    assert res["fontes"]["OpenAlex"]["desativada"] and res["completo"]
+    assert not any("openalex" in c for c in http.calls)

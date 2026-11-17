@@ -53,6 +53,8 @@ def _config(args) -> dict:
         cfg["halogenios"] = [m.strip().capitalize() for m in args.halogenios.split(",") if m.strip()]
     if getattr(args, "fontes", None):
         cfg["fontes_literatura"] = [f.strip().lower() for f in args.fontes.split(",") if f.strip()]
+    if getattr(args, "openalex_sem_chave", False):
+        cfg["openalex_sem_chave"] = True
     if getattr(args, "sem_cod", False):
         cfg["usar_cod"] = False
     if getattr(args, "sem_datacite", False):
@@ -82,6 +84,9 @@ def cmd_buscar(args) -> int:
     log.info("Perovskite Explorer %s — %d orgânicos; saída em %s", __version__, len(names), out.resolve())
     if not cfg.get("email"):
         log.info("Dica: informe --email para entrar na fila 'educada' (mais rápida) do Crossref/OpenAlex.")
+    if "openalex" in cfg["fontes_literatura"] and not (cfg.get("openalex_api_key") or cfg.get("openalex_sem_chave")):
+        log.info("OpenAlex desativado: sem chave de API. A chave é gratuita; defina OPENALEX_API_KEY para "
+                 "ampliar a cobertura de literatura (ver docs/GUIA.md).")
     try:
         results = pipeline.run(names, out, http, cfg, redo=args.refazer)
     finally:
@@ -215,6 +220,8 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--metais-extras", action="store_true", help=f"acrescenta {','.join(EXTENDED_METALS)}")
     b.add_argument("--halogenios", help=f"padrão: {','.join(DEFAULT_HALOGENS)} (acrescente F se quiser fluoretos)")
     b.add_argument("--fontes", help="fontes de literatura: openalex,europepmc,crossref,semanticscholar")
+    b.add_argument("--openalex-sem-chave", action="store_true",
+                   help="usa o OpenAlex mesmo sem OPENALEX_API_KEY (cota anônima diária, pode falhar)")
     b.add_argument("--sem-cod", action="store_true", help="não consulta o COD")
     b.add_argument("--sem-datacite", action="store_true", help="não busca depósitos CCDC via DataCite")
     b.add_argument("--max-cifs", type=int, help="limite de CIFs para candidatas só por fórmula com orgânico neutro (padrão: 300)")
