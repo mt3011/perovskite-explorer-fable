@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perovskite-explorer"
+version = "0.1.0"
+description = "Triagem de orgânicos para novas perovskitas híbridas: bancos cristalográficos + literatura, sem IA"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["requests>=2.28", "numpy>=1.23", "networkx>=3.0", "gemmi>=0.6.5", "openpyxl>=3.1"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+perovskite-explorer = "perovskite_explorer.cli:main"
+
+[tool.setuptools]
+packages = ["perovskite_explorer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
