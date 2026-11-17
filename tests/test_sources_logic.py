@@ -153,3 +153,22 @@ def test_offline_mode_uses_only_cache(tmp_path, no_sleep):
     h = HttpClient(tmp_path / "c.sqlite", session=Session([]), offline=True)
     with pytest.raises(SourceError, match="offline"):
         h.get_json("https://x.org/a")
+
+
+# ------------------------------------------------------------------ conector CSD (API)
+def test_csd_smarts_matches_protonated_form_and_rejects_isomer():
+    Chem = pytest.importorskip("rdkit.Chem")       # opcional: só roda se o RDKit estiver instalado
+    from helpers import NICOTINIC
+    from perovskite_explorer.csd import graph_to_smarts
+
+    patt = Chem.MolFromSmarts(graph_to_smarts(*NICOTINIC))
+    assert patt is not None
+    assert Chem.MolFromSmiles("OC(=O)c1cccnc1").HasSubstructMatch(patt)          # ácido nicotínico
+    assert Chem.MolFromSmiles("OC(=O)c1ccc[nH+]c1").HasSubstructMatch(patt)      # forma protonada
+    assert not Chem.MolFromSmiles("OC(=O)c1ccncc1").HasSubstructMatch(patt)      # isômero isonicotínico
+
+
+def test_csd_connector_is_optional():
+    from perovskite_explorer import csd
+
+    assert csd.available() in (True, False)        # sem o pacote `ccdc`, apenas fica desativado

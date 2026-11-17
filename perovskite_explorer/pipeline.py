@@ -23,6 +23,8 @@ from .names import build_terms, find_terms_in_chemname, slugify
 
 log = logging.getLogger("perovskite_explorer")
 
+SCHEMA = 2   # muda quando o formato do checkpoint muda; checkpoints antigos são refeitos
+
 DEFAULT_CONFIG = {
     "metais": DEFAULT_METALS,
     "halogenios": DEFAULT_HALOGENS,
@@ -75,7 +77,8 @@ def config_signature(cfg: dict) -> dict:
 
 
 def process_organic(http, name: str, cfg: dict) -> dict:
-    res = {"entrada": name, "versao": __version__, "inicio": dt.datetime.now().isoformat(timespec="seconds"),
+    res = {"entrada": name, "versao": __version__, "schema": SCHEMA,
+           "inicio": dt.datetime.now().isoformat(timespec="seconds"),
            "config": config_signature(cfg), "fontes": {}, "estruturas": [], "descartadas": [], "compostos": [], "literatura": [],
            "depositos_csd": []}
 
@@ -230,6 +233,9 @@ def load_results(out_dir: Path, names: list | None = None) -> list:
     for f in sorted(ck.glob("*.json")):
         try:
             r = json.loads(f.read_text(encoding="utf-8"))
+            if r.get("schema") != SCHEMA:
+                log.warning("checkpoint de versão antiga ignorado (será refeito pelo comando buscar): %s", f.name)
+                continue
             found[r["entrada"].lower()] = r
         except (ValueError, KeyError):
             log.warning("checkpoint ilegível ignorado: %s", f.name)
@@ -253,7 +259,8 @@ def run(names: list, out_dir, http, cfg: dict, redo: bool = False, retry_incompl
         if path.exists() and not redo:
             try:
                 prev = json.loads(path.read_text(encoding="utf-8"))
-                same_cfg = prev.get("config") == json.loads(json.dumps(config_signature(cfg)))
+                same_cfg = (prev.get("config") == json.loads(json.dumps(config_signature(cfg)))
+                            and prev.get("schema") == SCHEMA)
                 if same_cfg and (prev.get("completo") or not retry_incomplete):
                     log.info("[%d/%d] %s — já concluído (checkpoint), pulando", i, total, name)
                     continue
@@ -274,7 +281,7 @@ def run(names: list, out_dir, http, cfg: dict, redo: bool = False, retry_incompl
             break
         except Exception as exc:  # noqa: BLE001 - um orgânico problemático não derruba a lista inteira
             log.error("[%d/%d] %s — erro interno: %s\n%s", i, total, name, exc, traceback.format_exc())
-            res = {"entrada": name, "versao": __version__, "completo": False, "erro_interno": f"{type(exc).__name__}: {exc}",
+            res = {"entrada": name, "versao": __version__, "schema": SCHEMA, "completo": False, "erro_interno": f"{type(exc).__name__}: {exc}",
                    "organico": {"entrada": name, "resolvido": False, "avisos": []}, "termos": {},
                    "fontes": {"programa": {"ok": False, "erro": str(exc)}}, "estruturas": [], "descartadas": [],
                    "compostos": [], "literatura": [], "depositos_csd": []}
